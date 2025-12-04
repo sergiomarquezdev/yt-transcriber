@@ -18,7 +18,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +96,7 @@ class LLMCache:
             expires_at = datetime.fromisoformat(cached["expires_at"])
             if datetime.now() > expires_at:
                 logger.debug(f"Cache EXPIRED - deleting: {cache_key[:16]}...")
-                cache_file.unlink()
+                cache_file.unlink(missing_ok=True)
                 return None
 
             logger.info(
@@ -113,7 +112,7 @@ class LLMCache:
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning(f"Cache file corrupted, deleting: {e}")
-            cache_file.unlink()
+            cache_file.unlink(missing_ok=True)
             return None
 
     def set(

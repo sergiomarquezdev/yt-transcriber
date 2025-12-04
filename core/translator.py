@@ -11,7 +11,6 @@ from core.llm import call_gemini_with_cache
 from core.models import TimestampedSection, VideoSummary
 from core.settings import settings
 
-
 logger = logging.getLogger(__name__)
 
 

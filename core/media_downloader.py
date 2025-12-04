@@ -15,7 +15,6 @@ import yt_dlp
 
 from core import utils
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -33,10 +32,7 @@ def is_google_drive_url(url: str) -> bool:
         r"drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)",
         r"docs\.google\.com/file/d/([a-zA-Z0-9_-]+)",
     ]
-    for pattern in drive_patterns:
-        if re.search(pattern, url):
-            return True
-    return False
+    return any(re.search(pattern, url) for pattern in drive_patterns)
 
 
 def extract_drive_file_id(url: str) -> str | None:

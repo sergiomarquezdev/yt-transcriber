@@ -3,7 +3,7 @@ name = "yt-transcriber"
 version = "1.0.0"
 description = "YouTube Video Transcription & Summarization CLI"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 authors = [
     { name = "Sergio Marquez", email = "sergiomarquezdev@gmail.com" }
 ]
@@ -57,7 +57,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["E501", "B008"]
+ignore = ["E501", "B008", "SIM117"]
 
 [tool.mypy]
 python_version = "3.13"

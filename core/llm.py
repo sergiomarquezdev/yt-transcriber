@@ -24,7 +24,6 @@ import google.generativeai as genai
 from core.cache import LLMCache
 from core.settings import settings
 
-
 logger = logging.getLogger(__name__)
 
 # Global cache instance
@@ -255,6 +254,8 @@ def _call_llm_direct(
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
         )
+        if not resp.choices:
+            raise error_class("OpenAI API returned empty choices")
         content = resp.choices[0].message.content
         # content can be str or list of content parts; normalize to str
         if isinstance(content, list):
@@ -293,8 +294,11 @@ def _call_llm_direct(
             messages=[{"role": "user", "content": prompt}],
         )
         # Concatenate text content from blocks
+        content_blocks = getattr(msg, "content", []) or []
+        if not content_blocks:
+            raise error_class("Anthropic API returned empty content")
         parts = []
-        for block in getattr(msg, "content", []) or []:
+        for block in content_blocks:
             text = getattr(block, "text", None)
             if text:
                 parts.append(text)

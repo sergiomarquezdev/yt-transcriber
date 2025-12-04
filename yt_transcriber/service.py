@@ -25,7 +25,6 @@ from core.translator import ScriptTranslator
 from yt_transcriber import utils
 from yt_transcriber.summarizer import generate_summary
 
-
 logger = logging.getLogger(__name__)
 
 

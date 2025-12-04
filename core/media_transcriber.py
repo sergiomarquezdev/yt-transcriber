@@ -9,7 +9,6 @@ from pathlib import Path
 
 import whisper
 
-
 logger = logging.getLogger(__name__)
 
 

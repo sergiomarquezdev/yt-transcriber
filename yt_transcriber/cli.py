@@ -6,11 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from core.media_downloader import DownloadError, download_and_extract_audio
-from core.media_transcriber import TranscriptionError, transcribe_audio_file
 from core.settings import settings
-from yt_transcriber import utils
-
 
 logger = logging.getLogger(__name__)
 
@@ -278,10 +274,7 @@ def run_transcribe_command(
 
     model = load_whisper_model()
 
-    if is_local_file and local_file_path:
-        title = local_file_path.stem
-    else:
-        title = get_youtube_title(url)
+    title = local_file_path.stem if is_local_file and local_file_path else get_youtube_title(url)
 
     lang = None if language == "Auto-detectar" else language
 

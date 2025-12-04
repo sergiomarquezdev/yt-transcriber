@@ -11,7 +11,6 @@ from pathlib import Path
 # Re-export core utilities for backwards compatibility
 from core.utils import ensure_dir_exists, normalize_title_for_filename
 
-
 logger = logging.getLogger(__name__)
 
 __all__ = [

@@ -12,7 +12,6 @@ from core.models import VideoSummary
 from core.settings import settings
 from yt_transcriber.models import LinkedInPost, PostKits, TwitterThread
 
-
 logger = logging.getLogger(__name__)
 
 
