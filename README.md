@@ -10,7 +10,7 @@
 
 - **CUDA-accelerated transcription** with OpenAI Whisper
 - **Multi-language support** with auto-detection
-- **AI-powered summaries** (EN + ES) with Gemini 1.5 Flash:
+- **AI-powered summaries** (EN + ES) with Gemini 2.5 Flash:
   - Executive summary (2-3 sentences)
   - Key points (5-10 bullets)
   - Smart timestamps (inferred from content)
