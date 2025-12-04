@@ -80,8 +80,7 @@ def process_transcription(
     language: str | None = None,
     ffmpeg_location: str | None = None,
     generate_post_kits: bool = False,
-    only_transcript: bool = False,
-    skip_summary: bool = False,
+    generate_summary: bool = False,
     reuse_transcripts: bool = False,
 ) -> tuple[Path | None, Path | None, Path | None, Path | None]:
     """Delegate transcription pipeline to the service implementation."""
@@ -94,8 +93,7 @@ def process_transcription(
         language=language,
         ffmpeg_location=ffmpeg_location,
         generate_post_kits=generate_post_kits,
-        only_transcript=only_transcript,
-        skip_summary=skip_summary,
+        generate_summary=generate_summary,
         reuse_transcripts=reuse_transcripts,
     )
 
@@ -158,6 +156,9 @@ def command_transcribe(args):
         title = get_youtube_title(args.url)
         logger.info(f"Titulo extraido: {title}")
 
+    # --post-kits implies --summarize (post kits requires summary)
+    generate_summary = getattr(args, "summarize", False) or args.post_kits
+
     transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
         youtube_url=args.url,
         title=title,
@@ -165,8 +166,7 @@ def command_transcribe(args):
         language=args.language,
         ffmpeg_location=args.ffmpeg_location,
         generate_post_kits=args.post_kits,
-        only_transcript=getattr(args, "only_transcript", False),
-        skip_summary=getattr(args, "skip_summary", False),
+        generate_summary=generate_summary,
     )
 
     if transcript_path:
@@ -185,69 +185,27 @@ def command_transcribe(args):
         sys.exit(1)
 
 
-def command_summarize(args):
-    """Command handler for summarizing a YouTube video (transcribe + summaries)."""
-    setup_logging()
-
-    if not (
-        args.url.startswith("https://www.youtube.com/") or args.url.startswith("https://youtu.be/")
-    ):
-        logger.error(f"URL de YouTube no valida: {args.url}")
-        print("Error: La URL no parece ser una URL valida de YouTube.", file=sys.stderr)
-        sys.exit(1)
-
-    if not _ffmpeg_available(args.ffmpeg_location):
-        logger.warning("FFmpeg no encontrado. yt-dlp podria fallar al extraer audio.")
-
-    if not settings.GOOGLE_API_KEY:
-        logger.error("GOOGLE_API_KEY no configurada. No es posible generar el resumen.")
-        print("Error: Configura GOOGLE_API_KEY para usar el comando summarize.", file=sys.stderr)
-        sys.exit(1)
-
-    model = load_whisper_model()
-
-    logger.info("Extrayendo titulo del video...")
-    title = get_youtube_title(args.url)
-    logger.info(f"Titulo extraido: {title}")
-
-    transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
-        youtube_url=args.url,
-        title=title,
-        model=model,
-        language=args.language,
-        ffmpeg_location=args.ffmpeg_location,
-        generate_post_kits=args.post_kits,
-        only_transcript=False,
-        skip_summary=False,
-    )
-
-    if summary_path_en or summary_path_es:
-        logger.info("Proceso completado exitosamente.")
-        logger.info("Archivos generados:")
-        if transcript_path:
-            logger.info(f"Transcripcion: {transcript_path}")
-        if summary_path_en:
-            logger.info(f"Resumen (EN): {summary_path_en}")
-        if summary_path_es:
-            logger.info(f"Resumen (ES): {summary_path_es}")
-        if post_kits_path:
-            logger.info(f"Post Kits (LinkedIn + Twitter): {post_kits_path}")
-        sys.exit(0)
-    else:
-        logger.error("El proceso de resumen fallo.")
-        sys.exit(1)
-
-
 def run_transcribe_command(
     url: str,
     language: str | None = None,
     ffmpeg_location: str | None = None,
     generate_post_kits: bool = False,
-    only_transcript: bool = False,
-    skip_summary: bool = False,
+    generate_summary: bool = False,
     reuse_transcripts: bool = False,
 ) -> tuple[str | None, str | None, str | None, str | None]:
-    """Wrapper function for transcription to be called programmatically."""
+    """Wrapper function for transcription to be called programmatically.
+
+    Args:
+        url: YouTube URL, Google Drive URL, or local file path
+        language: Language code for transcription (None for auto-detect)
+        ffmpeg_location: Custom FFmpeg path
+        generate_post_kits: Generate LinkedIn + Twitter posts (implies generate_summary)
+        generate_summary: Generate EN + ES summaries
+        reuse_transcripts: Reuse cached transcripts
+
+    Returns:
+        Tuple of (transcript_path, summary_en_path, summary_es_path, post_kits_path)
+    """
     setup_logging()
 
     is_local_file = False
@@ -285,8 +243,7 @@ def run_transcribe_command(
         language=lang,
         ffmpeg_location=ffmpeg_location,
         generate_post_kits=generate_post_kits,
-        only_transcript=only_transcript,
-        skip_summary=skip_summary,
+        generate_summary=generate_summary,
         reuse_transcripts=reuse_transcripts,
     )
 
@@ -313,61 +270,33 @@ def main():
     # Subcommand: transcribe
     transcribe_parser = subparsers.add_parser(
         "transcribe",
-        help="Transcribe un video de YouTube a texto",
+        help="Transcribe un video de YouTube, Google Drive o archivo local",
     )
     transcribe_parser.add_argument(
         "-u", "--url", required=True, type=str,
-        help="URL completa del video de YouTube o ruta a un archivo de video local.",
+        help="URL de YouTube/Google Drive o ruta a archivo local.",
     )
     transcribe_parser.add_argument(
         "-l", "--language", type=str, default=None,
-        help="Codigo de idioma (ej. 'en', 'es') para forzar la transcripcion en ese idioma.",
+        help="Codigo de idioma (ej. 'en', 'es') para forzar la transcripcion.",
     )
     transcribe_parser.add_argument(
         "--ffmpeg-location", type=str, default=None,
         help="Ruta personalizada a FFmpeg.",
     )
     transcribe_parser.add_argument(
-        "--only-transcript", action="store_true",
-        help="Solo descargar y transcribir (sin resumen ni Post Kits).",
-    )
-    transcribe_parser.add_argument(
-        "--skip-summary", action="store_true",
-        help="Genera transcripcion pero omite el resumen y traduccion.",
+        "--summarize", action="store_true",
+        help="Generar resumenes EN + ES ademas de la transcripcion.",
     )
     transcribe_parser.add_argument(
         "--post-kits", action="store_true",
-        help="Generar LinkedIn post y Twitter thread automaticamente.",
-    )
-
-    # Subcommand: summarize
-    summarize_parser = subparsers.add_parser(
-        "summarize",
-        help="Transcribe y genera resumenes EN + ES (opcional Post Kits)",
-    )
-    summarize_parser.add_argument(
-        "-u", "--url", required=True, type=str,
-        help="URL completa del video de YouTube o ruta a un archivo de video local.",
-    )
-    summarize_parser.add_argument(
-        "-l", "--language", type=str, default=None,
-        help="Codigo de idioma para la transcripcion.",
-    )
-    summarize_parser.add_argument(
-        "--ffmpeg-location", type=str, default=None,
-        help="Ruta personalizada a FFmpeg.",
-    )
-    summarize_parser.add_argument(
-        "--post-kits", action="store_true",
-        help="Generar LinkedIn post y Twitter thread automaticamente.",
+        help="Generar LinkedIn post y Twitter thread (implica --summarize).",
     )
 
     args = parser.parse_args()
 
     if args.command == "transcribe":
         command_transcribe(args)
-    elif args.command == "summarize":
-        command_summarize(args)
     else:
         parser.print_help()
         sys.exit(1)

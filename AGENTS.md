@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -16,8 +16,9 @@ pip install -e .
 pip install -e ".[dev]"  # with dev dependencies
 
 # Run CLI
-yt-transcriber transcribe --url "https://youtube.com/watch?v=..." [--language es] [--post-kits]
-yt-transcriber summarize --url "..." [--post-kits]
+yt-transcriber transcribe --url "URL"                    # Only transcription (DEFAULT)
+yt-transcriber transcribe --url "URL" --summarize        # + AI summaries (EN + ES)
+yt-transcriber transcribe --url "URL" --post-kits        # + summaries + LinkedIn/Twitter
 
 # Testing
 pytest                           # all tests
@@ -46,7 +47,7 @@ yt-transcriber/
 │   └── models.py            # Shared data models (VideoSummary, TimestampedSection)
 │
 ├── yt_transcriber/          # Main application package
-│   ├── cli.py               # argparse CLI entry point (transcribe/summarize commands)
+│   ├── cli.py               # argparse CLI entry point (transcribe command + flags)
 │   ├── service.py           # Orchestration: download -> transcribe -> summarize -> translate
 │   ├── summarizer.py        # Gemini-powered video summarization
 │   ├── post_kits_generator.py # LinkedIn post + Twitter thread generation

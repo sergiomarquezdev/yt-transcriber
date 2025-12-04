@@ -68,30 +68,21 @@ sudo apt install ffmpeg  # Ubuntu/Debian
 
 ## Usage
 
-### Transcribe Videos
-
 ```bash
-# Basic transcription (auto-detect language)
+# Only transcription (DEFAULT)
 yt-transcriber transcribe --url "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Transcription + AI summaries (EN + ES)
+yt-transcriber transcribe --url "URL" --summarize
+
+# Transcription + summaries + Post Kits (LinkedIn + Twitter)
+yt-transcriber transcribe --url "URL" --post-kits
 
 # Force Spanish transcription
 yt-transcriber transcribe --url "URL" --language es
 
-# Only transcript (no summaries)
-yt-transcriber transcribe --url "URL" --only-transcript
-
-# With Post Kits (LinkedIn + Twitter)
-yt-transcriber transcribe --url "URL" --post-kits
-```
-
-### Summarize Videos
-
-```bash
-# Full pipeline: transcription + AI summaries (EN + ES)
-yt-transcriber summarize --url "https://www.youtube.com/watch?v=VIDEO_ID"
-
-# With social media Post Kits
-yt-transcriber summarize --url "URL" --post-kits
+# Local file
+yt-transcriber transcribe --url "path/to/video.mp4" --summarize
 ```
 
 ### CLI Options
@@ -100,9 +91,8 @@ yt-transcriber summarize --url "URL" --post-kits
 |--------|-------|-------------|
 | `--url` | `-u` | YouTube URL, Google Drive URL, or local file path |
 | `--language` | `-l` | Language code (`en`, `es`) - auto-detect if omitted |
-| `--only-transcript` | | Skip summaries and Post Kits |
-| `--skip-summary` | | Keep transcript, skip summaries |
-| `--post-kits` | | Generate LinkedIn + Twitter content |
+| `--summarize` | | Generate AI summaries (EN + ES) |
+| `--post-kits` | | Generate LinkedIn + Twitter content (implies --summarize) |
 | `--ffmpeg-location` | | Custom FFmpeg path |
 
 ## Output
@@ -167,9 +157,18 @@ LOG_LEVEL=INFO
 ```python
 from yt_transcriber.cli import run_transcribe_command
 
+# Only transcription (default)
+transcript, _, _, _ = run_transcribe_command(url="path/to/video.mp4")
+
+# With summaries
+transcript, summary_en, summary_es, _ = run_transcribe_command(
+    url="https://www.youtube.com/watch?v=VIDEO_ID",
+    generate_summary=True,
+)
+
+# With post kits (implies summary)
 transcript, summary_en, summary_es, post_kits = run_transcribe_command(
     url="https://www.youtube.com/watch?v=VIDEO_ID",
-    language="es",
     generate_post_kits=True,
 )
 ```

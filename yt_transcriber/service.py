@@ -23,7 +23,7 @@ from core.media_transcriber import TranscriptionError, transcribe_audio_file
 from core.settings import settings
 from core.translator import ScriptTranslator
 from yt_transcriber import utils
-from yt_transcriber.summarizer import generate_summary
+from yt_transcriber.summarizer import generate_summary as create_summary
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,7 @@ def process_transcription(
     language: str | None = None,
     ffmpeg_location: str | None = None,
     generate_post_kits: bool = False,
-    only_transcript: bool = False,
-    skip_summary: bool = False,
+    generate_summary: bool = False,
     reuse_transcripts: bool = False,
 ) -> tuple[Path | None, Path | None, Path | None, Path | None]:
     """Main logic to download, transcribe, and optionally summarize + post kits.
@@ -47,15 +46,17 @@ def process_transcription(
         model: Preloaded Whisper model
         language: Optional language code
         ffmpeg_location: Optional FFmpeg path
-        generate_post_kits: Generate LinkedIn + Twitter posts
-        only_transcript: Only transcribe, skip summaries
-        skip_summary: Skip summary generation
+        generate_post_kits: Generate LinkedIn + Twitter posts (implies generate_summary)
+        generate_summary: Generate EN + ES summaries (default: False, only transcript)
         reuse_transcripts: Reuse cached transcripts if available
 
     Returns:
         Tuple of (transcript_path, summary_path_en, summary_path_es, post_kits_path)
         or (None, None, None, None) on failure.
     """
+    # Post kits requires summary, so enable it implicitly
+    if generate_post_kits:
+        generate_summary = True
     # Detect if input is a local file, Google Drive URL, or YouTube URL
     is_local_file = False
     local_file_path: Path | None = None
@@ -127,8 +128,8 @@ def process_transcription(
 
                         # Summaries if requested and model is configured
                         ok, reason = is_model_configured(settings.SUMMARIZER_MODEL)
-                        if not only_transcript and not skip_summary and ok:
-                            summary_en = generate_summary(
+                        if generate_summary and ok:
+                            summary_en = create_summary(
                                 transcript=transcript_text,
                                 video_title=title,
                                 video_url=youtube_url,
@@ -286,14 +287,13 @@ def process_transcription(
         except Exception as e:
             logger.warning(f"No se pudo escribir transcripción al caché: {e}")
 
-        # 4) Generate EN summary
+        # 4) Generate EN summary (only if requested)
+        if not generate_summary:
+            logger.info("Solo transcripción solicitada (sin --summarize)")
+            return transcript_path, None, None, None
+
         logger.info("Paso 4: Generando resumen con IA (inglés)...")
         try:
-            if only_transcript or skip_summary:
-                logger.info(
-                    "Omisión de resumen solicitada por flags (--only-transcript/--skip-summary)"
-                )
-                return transcript_path, None, None, None
 
             ok, reason = is_model_configured(settings.SUMMARIZER_MODEL)
             if not ok:
@@ -303,7 +303,7 @@ def process_transcription(
 
             # Use empty URL for local files in summary generation
             video_url_for_summary = youtube_url if not is_local_file else ""
-            summary_en = generate_summary(
+            summary_en = create_summary(
                 transcript=transcription_result.text,
                 video_title=title,
                 video_url=video_url_for_summary,

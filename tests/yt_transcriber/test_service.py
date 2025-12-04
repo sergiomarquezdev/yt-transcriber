@@ -42,7 +42,7 @@ class TestProcessTranscription:
     # =========================================================================
 
     def test_successful_transcription_only(self, mock_dependencies, mock_whisper_model, temp_dir):
-        """Test successful transcription without summary."""
+        """Test successful transcription without summary (default behavior)."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
             with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
                 with patch("yt_transcriber.service.utils") as mock_utils:
@@ -68,11 +68,12 @@ class TestProcessTranscription:
                     mock_utils.normalize_title_for_filename.return_value = "test_video"
                     mock_utils.cleanup_temp_dir = MagicMock()
 
+                    # Default: generate_summary=False (only transcription)
                     result = process_transcription(
                         youtube_url="https://www.youtube.com/watch?v=test123",
                         title="Test Video",
                         model=mock_whisper_model,
-                        only_transcript=True,
+                        # generate_summary defaults to False
                     )
 
                     transcript, summary_en, summary_es, post_kits = result
@@ -160,11 +161,11 @@ class TestProcessTranscription:
                     mock_utils.normalize_title_for_filename.return_value = "video"
                     mock_utils.cleanup_temp_dir = MagicMock()
 
+                    # generate_summary=False is default, no summary generated
                     process_transcription(
                         youtube_url=str(local_file),
                         title="",
                         model=mock_whisper_model,
-                        only_transcript=True,
                     )
 
                     # Should call extract_audio_from_local_file
@@ -197,25 +198,25 @@ class TestProcessTranscription:
                     mock_utils.cleanup_temp_dir = MagicMock()
 
                     # Google Drive URL - detection happens automatically
+                    # generate_summary=False is default
                     process_transcription(
                         youtube_url="https://drive.google.com/file/d/abc123/view",
                         title="Test",
                         model=mock_whisper_model,
-                        only_transcript=True,
                     )
 
                     mock_download.assert_called_once()
 
     # =========================================================================
-    # SKIP FLAGS TESTS
+    # GENERATE SUMMARY FLAG TESTS
     # =========================================================================
 
-    def test_skip_summary_flag(self, mock_dependencies, mock_whisper_model, temp_dir):
-        """Test skip_summary flag prevents summary generation."""
+    def test_default_no_summary(self, mock_dependencies, mock_whisper_model, temp_dir):
+        """Test that default behavior (generate_summary=False) skips summary."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
             with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
                 with patch("yt_transcriber.service.utils") as mock_utils:
-                    with patch("yt_transcriber.service.generate_summary") as mock_summary:
+                    with patch("yt_transcriber.service.create_summary") as mock_summary:
                         audio_path = temp_dir / "temp" / "audio.wav"
                         audio_path.parent.mkdir(exist_ok=True)
                         audio_path.touch()
@@ -237,54 +238,73 @@ class TestProcessTranscription:
                         mock_utils.normalize_title_for_filename.return_value = "test"
                         mock_utils.cleanup_temp_dir = MagicMock()
 
-                        process_transcription(
-                            youtube_url="https://www.youtube.com/watch?v=test",
-                            title="Test",
-                            model=mock_whisper_model,
-                            skip_summary=True,
-                        )
-
-                        # Should not call generate_summary
-                        mock_summary.assert_not_called()
-
-    def test_only_transcript_flag(self, mock_dependencies, mock_whisper_model, temp_dir):
-        """Test only_transcript flag prevents summary generation."""
-        with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
-            with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
-                with patch("yt_transcriber.service.utils") as mock_utils:
-                    with patch("yt_transcriber.service.generate_summary") as mock_summary:
-                        audio_path = temp_dir / "temp" / "audio.wav"
-                        audio_path.parent.mkdir(exist_ok=True)
-                        audio_path.touch()
-
-                        mock_download.return_value = MagicMock(
-                            audio_path=audio_path,
-                            video_path=None,
-                            video_id="test123",
-                        )
-                        mock_transcribe.return_value = MagicMock(
-                            text="Text",
-                            language="en",
-                        )
-
-                        transcript_path = temp_dir / "transcripts" / "test.txt"
-                        transcript_path.parent.mkdir(exist_ok=True)
-                        transcript_path.write_text("Text")
-                        mock_utils.save_transcription_to_file.return_value = transcript_path
-                        mock_utils.normalize_title_for_filename.return_value = "test"
-                        mock_utils.cleanup_temp_dir = MagicMock()
-
+                        # Default: generate_summary=False
                         result = process_transcription(
                             youtube_url="https://www.youtube.com/watch?v=test",
                             title="Test",
                             model=mock_whisper_model,
-                            only_transcript=True,
                         )
 
+                        # Should not call generate_summary when generate_summary=False
                         mock_summary.assert_not_called()
                         transcript, summary_en, summary_es, post_kits = result
                         assert transcript is not None
                         assert summary_en is None
+
+    def test_generate_summary_true_calls_summarizer(self, mock_dependencies, mock_whisper_model, temp_dir):
+        """Test that generate_summary=True triggers summary generation."""
+        with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
+            with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
+                with patch("yt_transcriber.service.utils") as mock_utils:
+                    with patch("yt_transcriber.service.create_summary") as mock_summary:
+                        with patch("yt_transcriber.service.is_model_configured") as mock_model_cfg:
+                            with patch("yt_transcriber.service.ScriptTranslator") as mock_translator:
+                                audio_path = temp_dir / "temp" / "audio.wav"
+                                audio_path.parent.mkdir(exist_ok=True)
+                                audio_path.touch()
+
+                                mock_download.return_value = MagicMock(
+                                    audio_path=audio_path,
+                                    video_path=None,
+                                    video_id="test123",
+                                )
+                                mock_transcribe.return_value = MagicMock(
+                                    text="Text",
+                                    language="en",
+                                )
+
+                                transcript_path = temp_dir / "transcripts" / "test.txt"
+                                transcript_path.parent.mkdir(exist_ok=True)
+                                transcript_path.write_text("Text")
+                                mock_utils.save_transcription_to_file.return_value = transcript_path
+                                mock_utils.normalize_title_for_filename.return_value = "test"
+                                mock_utils.cleanup_temp_dir = MagicMock()
+
+                                # Model is configured
+                                mock_model_cfg.return_value = (True, "")
+
+                                # Mock summary result
+                                mock_summary_obj = MagicMock()
+                                mock_summary_obj.to_markdown.return_value = "# Summary"
+                                mock_summary.return_value = mock_summary_obj
+
+                                # Mock translator
+                                mock_translator_instance = MagicMock()
+                                mock_translator_instance.translate_summary.return_value = mock_summary_obj
+                                mock_translator.return_value = mock_translator_instance
+
+                                result = process_transcription(
+                                    youtube_url="https://www.youtube.com/watch?v=test",
+                                    title="Test",
+                                    model=mock_whisper_model,
+                                    generate_summary=True,
+                                )
+
+                                # Should call generate_summary when generate_summary=True
+                                mock_summary.assert_called_once()
+                                transcript, summary_en, summary_es, post_kits = result
+                                assert transcript is not None
+                                assert summary_en is not None
 
     # =========================================================================
     # CLEANUP TESTS
@@ -316,11 +336,11 @@ class TestProcessTranscription:
                     mock_utils.normalize_title_for_filename.return_value = "test"
                     mock_utils.cleanup_temp_dir = MagicMock()
 
+                    # Default: generate_summary=False
                     process_transcription(
                         youtube_url="https://www.youtube.com/watch?v=test",
                         title="Test",
                         model=mock_whisper_model,
-                        only_transcript=True,
                     )
 
                     mock_utils.cleanup_temp_dir.assert_called_once()
