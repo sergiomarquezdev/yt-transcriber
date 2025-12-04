@@ -1,0 +1,43 @@
+# Entornos virtuales
+venv/
+.venv/
+ENV/
+env/
+
+# Archivos de Python compilados y caché
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos temporales y de salida (según config.py)
+temp_files/
+temp_batch/
+output/
+
+# Logs
+*.log
+
+# Archivos de configuración local (si se usan)
+.env
+
+# Archivos del editor/IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Test coverage reports
+.coverage
+htmlcov/
+
+# Modern Python tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# UV package manager
+uv.lock
+
+# Cursor
+.cursor/
+.cursorrules
