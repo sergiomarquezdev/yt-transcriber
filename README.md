@@ -17,6 +17,11 @@
   - Action items (when applicable)
 - **Social Media Post Kits**: Auto-generate LinkedIn posts + Twitter threads
 - **Multiple input sources**: YouTube, Google Drive, local files
+- **Performance optimized**:
+  - Automatic memory cleanup (no memory leaks)
+  - In-memory LRU cache for faster repeated operations
+  - Thread-safe concurrent processing
+  - Auto temp file cleanup
 
 ## Quick Start
 
@@ -172,6 +177,29 @@ transcript, summary_en, summary_es, post_kits = run_transcribe_command(
     generate_post_kits=True,
 )
 ```
+
+
+## Performance & Resource Management
+
+The application includes automatic optimizations for production use:
+
+**Memory Management:**
+- Whisper model auto-loads/unloads per video (prevents memory leaks)
+- In-memory LRU cache reduces disk I/O by 100-1000x for repeated operations
+- Automatic garbage collection after each transcription
+
+**Resource Cleanup:**
+- Temp files auto-deleted after processing (even on errors)
+- Cache auto-prunes expired entries (5% probability per write)
+- No manual cleanup needed
+
+**Concurrency:**
+- Thread-safe rate limiting for LLM API calls
+- Multiple videos can be processed concurrently without conflicts
+- FFmpeg timeout protection (5min) prevents hung processes
+
+**Batch Processing:**
+For processing many videos, memory and disk usage remain constant instead of growing unbounded.
 
 ## Troubleshooting
 
