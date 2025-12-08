@@ -20,33 +20,7 @@ def setup_logging():
     )
 
 
-def load_whisper_model():
-    """Carga y devuelve el modelo Whisper segun la configuracion."""
-    logger.info("Cargando modelo Whisper...")
-    try:
-        import torch
-        import whisper
-    except ImportError as e:
-        logger.critical(
-            f"Dependencias criticas no encontradas. Asegurate de que torch y whisper esten instalados. Error: {e}"
-        )
-        sys.exit(1)
-    device = settings.WHISPER_DEVICE
-    if device == "cuda" and not torch.cuda.is_available():
-        logger.warning("CUDA no disponible. Cambiando a CPU para Whisper.")
-        device = "cpu"
-
-    try:
-        model = whisper.load_model(settings.WHISPER_MODEL_NAME, device=device)
-        logger.info(f"Modelo Whisper '{settings.WHISPER_MODEL_NAME}' cargado en '{device}'.")
-        return model
-    except Exception as e:
-        logger.critical(
-            f"Fallo CRITICO al cargar modelo Whisper en '{device}'. Error: {e}",
-            exc_info=True,
-        )
-        sys.exit(1)
-
+from yt_transcriber.whisper_context import whisper_model_context
 
 class _Console:
     def print(self, *args, **kwargs):
@@ -146,8 +120,6 @@ def command_transcribe(args):
         if not _ffmpeg_available(args.ffmpeg_location):
             logger.warning("FFmpeg no encontrado. yt-dlp podria fallar al extraer audio.")
 
-    model = load_whisper_model()
-
     if is_local_file and local_file_path:
         title = local_file_path.stem
         logger.info(f"Usando nombre de archivo como titulo: {title}")
@@ -159,15 +131,17 @@ def command_transcribe(args):
     # --post-kits implies --summarize (post kits requires summary)
     generate_summary = getattr(args, "summarize", False) or args.post_kits
 
-    transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
-        youtube_url=args.url,
-        title=title,
-        model=model,
-        language=args.language,
-        ffmpeg_location=args.ffmpeg_location,
-        generate_post_kits=args.post_kits,
-        generate_summary=generate_summary,
-    )
+    # Use context manager for auto-cleanup of model memory
+    with whisper_model_context() as model:
+        transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
+            youtube_url=args.url,
+            title=title,
+            model=model,
+            language=args.language,
+            ffmpeg_location=args.ffmpeg_location,
+            generate_post_kits=args.post_kits,
+            generate_summary=generate_summary,
+        )
 
     if transcript_path:
         logger.info("Proceso completado exitosamente.")
@@ -230,22 +204,25 @@ def run_transcribe_command(
             logger.error(f"Invalid URL: {url} (must be YouTube or Google Drive)")
             return None, None, None, None
 
-    model = load_whisper_model()
-
     title = local_file_path.stem if is_local_file and local_file_path else get_youtube_title(url)
 
     lang = None if language == "Auto-detectar" else language
 
-    transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
-        youtube_url=url,
-        title=title,
-        model=model,
-        language=lang,
-        ffmpeg_location=ffmpeg_location,
-        generate_post_kits=generate_post_kits,
-        generate_summary=generate_summary,
-        reuse_transcripts=reuse_transcripts,
-    )
+    try:
+        with whisper_model_context() as model:
+            transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
+                youtube_url=url,
+                title=title,
+                model=model,
+                language=lang,
+                ffmpeg_location=ffmpeg_location,
+                generate_post_kits=generate_post_kits,
+                generate_summary=generate_summary,
+                reuse_transcripts=reuse_transcripts,
+            )
+    except Exception as e:
+        logger.error(f"Transcription failed: {e}")
+        return None, None, None, None
 
     if transcript_path:
         return (

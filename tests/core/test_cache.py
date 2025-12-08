@@ -3,6 +3,7 @@
 import json
 import time
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -177,7 +178,9 @@ class TestLLMCache:
         cache = LLMCache(cache_dir=temp_cache_dir, ttl_days=0)
         response = {"text": "Response"}
 
-        cache.set("model", "v1.0", sample_inputs, response)
+        # Mock random to prevent probabilistic cleanup during set()
+        with patch("core.cache.random.random", return_value=1.0):
+            cache.set("model", "v1.0", sample_inputs, response)
         cache_files_before = list(temp_cache_dir.glob("*.json"))
         assert len(cache_files_before) == 1
 
@@ -195,10 +198,12 @@ class TestLLMCache:
         """Test that clear_expired removes expired files."""
         cache = LLMCache(cache_dir=temp_cache_dir, ttl_days=0)
 
-        # Create multiple cache entries
-        cache.set("model", "v1.0", {"a": "1"}, {"text": "1"})
-        cache.set("model", "v1.0", {"b": "2"}, {"text": "2"})
-        cache.set("model", "v1.0", {"c": "3"}, {"text": "3"})
+        # Mock random to prevent probabilistic cleanup during set()
+        with patch("core.cache.random.random", return_value=1.0):
+            # Create multiple cache entries
+            cache.set("model", "v1.0", {"a": "1"}, {"text": "1"})
+            cache.set("model", "v1.0", {"b": "2"}, {"text": "2"})
+            cache.set("model", "v1.0", {"c": "3"}, {"text": "3"})
 
         assert len(list(temp_cache_dir.glob("*.json"))) == 3
 
@@ -233,6 +238,9 @@ class TestLLMCache:
         # Corrupt the file
         cache_files[0].write_text("{ invalid json }")
 
+        # Clear memory cache to force disk read
+        cache._mem_cache.clear()
+
         # Should return None and delete corrupted file
         result = cache.get("model", "v1.0", sample_inputs)
         assert result is None
@@ -247,6 +255,9 @@ class TestLLMCache:
         cache_files = list(temp_cache_dir.glob("*.json"))
         # Write incomplete data
         cache_files[0].write_text('{"model": "test"}')  # Missing expires_at
+
+        # Clear memory cache to force disk read
+        cache._mem_cache.clear()
 
         result = cache.get("model", "v1.0", sample_inputs)
         assert result is None
@@ -288,6 +299,9 @@ class TestLLMCache:
         data["response"] = "not a dict"
         with open(cache_files[0], "w") as f:
             json.dump(data, f)
+
+        # Clear memory cache to force disk read
+        cache._mem_cache.clear()
 
         result = cache.get("model", "v1.0", sample_inputs)
         assert result is None

@@ -34,58 +34,41 @@ class LLMCache:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl = timedelta(days=ttl_days)
+        # In-memory LRU cache (simple dict for this session)
+        self._mem_cache: dict[str, dict] = {}
         logger.debug(f"LLM cache initialized at {cache_dir} with TTL={ttl_days} days")
 
     def _make_key(self, model: str, prompt_version: str, inputs: dict) -> str:
-        """Generate cache key from model, prompt version, and input content.
-
-        The key is a hash of:
-        - model name (e.g., "gemini-1.5-flash-8b")
-        - prompt_version (e.g., "v1.0")
-        - inputs hash (e.g., hash of transcript + title)
-
-        This ensures:
-        - Different videos → different keys (no incorrect reuse)
-        - Same video + updated prompt → different keys (regenerates)
-        - Same video + same prompt → same key (cache hit)
-
-        Args:
-            model: Model name
-            prompt_version: Prompt template version
-            inputs: Dictionary of input data (transcript, title, etc.)
-
-        Returns:
-            SHA256 hash string
-        """
-        # Sort inputs to ensure consistent hashing
-        inputs_str = json.dumps(inputs, sort_keys=True)
-        inputs_hash = hashlib.sha256(inputs_str.encode()).hexdigest()
-
-        # Combine all components
-        key_data = f"{model}:{prompt_version}:{inputs_hash}"
-        cache_key = hashlib.sha256(key_data.encode()).hexdigest()
-
-        logger.debug(
-            f"Cache key generated: {cache_key[:16]}... (inputs_hash: {inputs_hash[:16]}...)"
-        )
+        """Generate cache key from model, prompt version, and input content."""
+        # Single pass hashing for efficiency (Issue #9)
+        payload = {
+            "m": model,
+            "v": prompt_version,
+            "i": inputs
+        }
+        # Dump with sort_keys to ensure consistency
+        payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+        cache_key = hashlib.sha256(payload_bytes).hexdigest()
         return cache_key
 
     def get(self, model: str, prompt_version: str, inputs: dict) -> dict | None:
-        """Get cached response if it exists and is not expired.
-
-        Args:
-            model: Model name
-            prompt_version: Prompt template version
-            inputs: Dictionary of input data
-
-        Returns:
-            Cached response dict or None if cache miss
-        """
+        """Get cached response if it exists and is not expired."""
         cache_key = self._make_key(model, prompt_version, inputs)
+        
+        # 1. Check in-memory cache first (Issue #6 - reduce sync I/O)
+        if cache_key in self._mem_cache:
+            entry = self._mem_cache[cache_key]
+            # Check expiry (fast in-memory check)
+            if datetime.now() < entry["expires"]:
+                logger.debug(f"✅ Memory Cache HIT: {cache_key[:8]}...")
+                return entry["data"]
+            else:
+                del self._mem_cache[cache_key]
+
+        # 2. Check disk cache
         cache_file = self.cache_dir / f"{cache_key}.json"
 
         if not cache_file.exists():
-            logger.debug(f"Cache MISS - file not found: {cache_key[:16]}...")
             return None
 
         try:
@@ -100,12 +83,19 @@ class LLMCache:
                 return None
 
             logger.info(
-                f"✅ Cache HIT - Reusing response (saved ${cached.get('cost', 0):.4f} + {cached.get('time_saved', 0):.1f}s)"
+                f"✅ Disk Cache HIT - Reusing response (saved ${cached.get('cost', 0):.4f} + {cached.get('time_saved', 0):.1f}s)"
             )
             response_obj = cached.get("response")
+            
             if isinstance(response_obj, dict):
+                # Populate memory cache
+                self._mem_cache[cache_key] = {
+                    "data": response_obj,
+                    "expires": expires_at
+                }
                 return response_obj
-            # If response isn't a dict, treat as corrupted and invalidate this cache entry
+            
+            # If response isn't a dict, treat as corrupted
             logger.warning("Cache 'response' is not a dict; deleting corrupted cache file")
             cache_file.unlink(missing_ok=True)
             return None
@@ -124,16 +114,7 @@ class LLMCache:
         cost: float = 0.0,
         time_saved: float = 0.0,
     ):
-        """Save response to cache.
-
-        Args:
-            model: Model name
-            prompt_version: Prompt template version
-            inputs: Dictionary of input data
-            response: Response to cache (will be JSON-serialized)
-            cost: Estimated cost saved by cache hit (for logging)
-            time_saved: Estimated time saved in seconds (for logging)
-        """
+        """Save response to cache."""
         cache_key = self._make_key(model, prompt_version, inputs)
         cache_file = self.cache_dir / f"{cache_key}.json"
 
@@ -150,12 +131,26 @@ class LLMCache:
             "expires_at": expires_at.isoformat(),
         }
 
+        # Update disk (sync I/O)
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(cached_data, f, indent=2, ensure_ascii=False)
             logger.debug(
                 f"Cache saved: {cache_key[:16]}... (expires: {expires_at.strftime('%Y-%m-%d %H:%M')})"
             )
+            
+            # Update memory cache
+            self._mem_cache[cache_key] = {
+                "data": response,
+                "expires": expires_at
+            }
+
+            # Probabilistic Cleanup (Issue #13)
+            # 5% chance to clean up expired files on write
+            import random
+            if random.random() < 0.05:
+                self.clear_expired()
+                
         except Exception as e:
             logger.warning(f"Failed to save cache: {e}")
 

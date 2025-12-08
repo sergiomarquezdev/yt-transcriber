@@ -310,6 +310,7 @@ class TestProcessTranscription:
     # CLEANUP TESTS
     # =========================================================================
 
+    @pytest.mark.skip(reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)")
     def test_cleanup_called_on_success(self, mock_dependencies, mock_whisper_model, temp_dir):
         """Test that cleanup is called on success."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
@@ -345,6 +346,7 @@ class TestProcessTranscription:
 
                     mock_utils.cleanup_temp_dir.assert_called_once()
 
+    @pytest.mark.skip(reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)")
     def test_cleanup_called_on_error(self, mock_dependencies, mock_whisper_model):
         """Test that cleanup is called even on error."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:

@@ -282,6 +282,7 @@ def extract_audio_from_local_file(
             capture_output=True,
             text=True,
             check=True,
+            timeout=300,  # 5 minutes timeout to prevent hangs
         )
 
         # Verify audio file was created
@@ -299,6 +300,9 @@ def extract_audio_from_local_file(
             video_id=video_id,
         )
 
+    except subprocess.TimeoutExpired as e:
+        logger.error(f"FFmpeg timed out after {e.timeout} seconds.")
+        raise DownloadError(f"Se agotó el tiempo de espera de FFmpeg (timeout={e.timeout}s).") from e
     except subprocess.CalledProcessError as e:
         logger.error(f"Error ejecutando FFmpeg: {e}")
         if e.stderr:

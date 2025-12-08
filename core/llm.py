@@ -16,6 +16,7 @@ import logging
 import os
 import time
 from collections import deque
+from threading import Lock
 
 import google.generativeai as genai
 
@@ -28,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 # Global cache instance
 _cache: LLMCache | None = None
-_call_times: deque[float] = deque()  # timestamps (seconds) for simple QPS limiting
+_call_times: deque[float] = deque(maxlen=settings.LLM_QPS if settings.LLM_QPS > 0 else 1000)
+_call_times_lock = Lock()
 
 # Simple pricing tables (USD per 1M tokens) for rough cost estimation
 _PRICING = {
@@ -157,16 +159,30 @@ def call_gemini_with_cache(
     try:
         if settings.LLM_QPS and settings.LLM_QPS > 0:
             window = 60.0
-            now = time.time()
-            while _call_times and now - _call_times[0] > window:
-                _call_times.popleft()
-            if len(_call_times) >= settings.LLM_QPS:
-                sleep_time = window - (now - _call_times[0]) + 0.01
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-            _call_times.append(time.time())
+            sleep_time = 0
+
+            with _call_times_lock:
+                now = time.time()
+                # Remove timestamps older than window
+                while _call_times and now - _call_times[0] > window:
+                    _call_times.popleft()
+
+                if len(_call_times) >= settings.LLM_QPS:
+                    sleep_time = window - (now - _call_times[0]) + 0.01
+
+                # Only append if not sleeping (will append after sleep)
+                if sleep_time <= 0:
+                    _call_times.append(now)
+
+            # Sleep OUTSIDE the lock to avoid blocking other threads unnecessarily
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                # Append after sleep
+                with _call_times_lock:
+                    _call_times.append(time.time())
     except Exception:
         # Never fail due to rate limiter
+        logger.warning("Rate limiter exception", exc_info=True)
         pass
 
     try:

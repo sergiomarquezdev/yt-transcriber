@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yt_dlp
 
 from core.media_downloader import (
     DownloadError,
@@ -127,14 +128,14 @@ class TestDownloadAndExtractAudio:
     @pytest.fixture
     def mock_yt_dlp(self):
         """Create mock yt-dlp."""
-        with patch("core.media_downloader.yt_dlp") as mock:
+        with patch("yt_dlp.YoutubeDL") as mock:
             yield mock
 
     def test_successful_youtube_download(self, mock_yt_dlp, temp_dir):
         """Test successful YouTube video download."""
         # Setup mock
         mock_ydl_instance = MagicMock()
-        mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl_instance
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl_instance
 
         # Mock extract_info to return video info
         mock_ydl_instance.extract_info.return_value = {
@@ -157,31 +158,27 @@ class TestDownloadAndExtractAudio:
         assert result.video_id == "test_video_id"
         assert result.audio_path == audio_path
 
-    def test_download_error_on_missing_audio(self, temp_dir):
+    def test_download_error_on_missing_audio(self, mock_yt_dlp, temp_dir):
         """Test that DownloadError is raised when audio extraction fails."""
-        with patch("core.media_downloader.yt_dlp") as mock_yt_dlp:
-            # Create a mock DownloadError that inherits from BaseException
-            mock_yt_dlp.utils.DownloadError = Exception
+        mock_ydl_instance = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl_instance
+        mock_ydl_instance.extract_info.return_value = {"id": "test123"}
+        mock_ydl_instance.prepare_filename.return_value = str(temp_dir / "video.mp4")
 
-            mock_ydl_instance = MagicMock()
-            mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl_instance
-            mock_ydl_instance.extract_info.return_value = {"id": "test123"}
-            mock_ydl_instance.prepare_filename.return_value = str(temp_dir / "video.mp4")
+        # Don't create audio file - simulates extraction failure
 
-            # Don't create audio file - simulates extraction failure
-
-            with patch("core.media_downloader.utils.ensure_dir_exists"):
-                with pytest.raises(DownloadError, match="audio"):
-                    download_and_extract_audio(
-                        youtube_url="https://www.youtube.com/watch?v=test123",
-                        temp_dir=temp_dir,
-                        unique_job_id="job123",
-                    )
+        with patch("core.media_downloader.utils.ensure_dir_exists"):
+            with pytest.raises(DownloadError, match="audio"):
+                download_and_extract_audio(
+                    youtube_url="https://www.youtube.com/watch?v=test123",
+                    temp_dir=temp_dir,
+                    unique_job_id="job123",
+                )
 
     def test_google_drive_url_detected(self, mock_yt_dlp, temp_dir):
         """Test that Google Drive URL is detected and handled."""
         mock_ydl_instance = MagicMock()
-        mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl_instance
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl_instance
         mock_ydl_instance.extract_info.return_value = {
             "id": None,  # Drive might not return ID
             "title": "Drive File",
@@ -204,9 +201,8 @@ class TestDownloadAndExtractAudio:
     def test_yt_dlp_error_wrapped(self, mock_yt_dlp, temp_dir):
         """Test that yt-dlp errors are wrapped in DownloadError."""
         mock_ydl_instance = MagicMock()
-        mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl_instance
-        mock_yt_dlp.utils.DownloadError = Exception
-        mock_ydl_instance.extract_info.side_effect = Exception("yt-dlp failed")
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl_instance
+        mock_ydl_instance.extract_info.side_effect = yt_dlp.utils.DownloadError("yt-dlp failed")
 
         with patch("core.media_downloader.utils.ensure_dir_exists"):
             with pytest.raises(DownloadError):
@@ -219,7 +215,7 @@ class TestDownloadAndExtractAudio:
     def test_custom_ffmpeg_location(self, mock_yt_dlp, temp_dir):
         """Test that custom FFmpeg location is passed to yt-dlp."""
         mock_ydl_instance = MagicMock()
-        mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl_instance
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl_instance
         mock_ydl_instance.extract_info.return_value = {"id": "test123"}
         mock_ydl_instance.prepare_filename.return_value = str(temp_dir / "video.mp4")
 
@@ -235,7 +231,7 @@ class TestDownloadAndExtractAudio:
             )
 
         # Verify ffmpeg_location was passed in options
-        calls = mock_yt_dlp.YoutubeDL.call_args_list
+        calls = mock_yt_dlp.call_args_list
         # Check that one of the calls includes ffmpeg_location
         for call in calls:
             opts = call[0][0] if call[0] else call[1].get("params", {})

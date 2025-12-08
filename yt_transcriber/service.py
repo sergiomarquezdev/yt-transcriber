@@ -9,6 +9,7 @@ backward compatibility (tests patch functions in yt_transcriber.cli).
 
 import logging
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -79,32 +80,48 @@ def process_transcription(
         if is_drive_url:
             logger.info(f"Detectada URL de Google Drive: {youtube_url}")
 
+    # --- OPTIMIZATION START (Issue #8) ---
+    # Extract ID once at start to avoid duplicate network calls.
+    # Try regex first (fast), fall back to yt-dlp (slow).
+    video_id: str | None = None
+    if not is_local_file and not is_drive_url:
+        import re
+        # Try Regex 1 (standard)
+        m = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", youtube_url)
+        if m:
+            video_id = m.group(1)
+        
+        # Fallback to yt-dlp only if regex failed (and we need it for cache)
+        if not video_id and (reuse_transcripts or settings.TRANSCRIPT_CACHE_ENABLED):
+             try:
+                import yt_dlp
+                with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
+                    info = ydl.extract_info(youtube_url, download=False)
+                    if info:
+                        video_id = info.get("id")
+             except Exception:
+                 video_id = None
+    # --- OPTIMIZATION END ---
+
     if is_local_file:
         logger.info(f"Iniciando transcripción para archivo local: {local_file_path}")
     elif is_drive_url:
         logger.info(f"Iniciando transcripción para archivo de Google Drive: {youtube_url}")
     else:
-        logger.info(f"Iniciando transcripción para URL: {youtube_url}")
+        logger.info(f"Iniciando transcripción para URL: {youtube_url} (Video ID: {video_id})")
+    
     unique_job_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    job_temp_dir = settings.TEMP_DOWNLOAD_DIR / unique_job_id
 
     # Ensure output directories
     settings.OUTPUT_TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     settings.SUMMARY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    settings.TEMP_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True) # Ensure base temp dir exists
 
     # Fast path: reuse cached transcript if available (only for YouTube URLs, not Drive or local files)
-    if (reuse_transcripts or settings.TRANSCRIPT_CACHE_ENABLED) and not is_local_file and not is_drive_url:
-        video_id_for_cache: str | None = None
-        try:
-            import yt_dlp
-
-            with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
-                info = ydl.extract_info(youtube_url, download=False)
-                if info:
-                    video_id_for_cache = info.get("id")
-        except Exception:
-            video_id_for_cache = None
-
+    if (reuse_transcripts or settings.TRANSCRIPT_CACHE_ENABLED) and video_id:
+        video_id_for_cache = video_id
+        # Removed redundant yt-dlp call here
+        
         if video_id_for_cache:
             cache_file = settings.TRANSCRIPT_CACHE_DIR / f"{video_id_for_cache}.txt"
             if cache_file.exists():
@@ -210,173 +227,162 @@ def process_transcription(
                 except Exception as e:
                     logger.warning(f"Error leyendo caché de transcripción: {e}")
 
+    # Use TemporaryDirectory for robust cleanup (Issue #12)
+    # This automatically cleans up files even if exceptions occur
     try:
-        # 1) Download/extract audio
-        if is_local_file and local_file_path:
-            logger.info("Paso 1: Extrayendo audio de archivo local...")
-            download_result = extract_audio_from_local_file(
-                video_path=local_file_path,
-                temp_dir=job_temp_dir,
-                unique_job_id=unique_job_id,
-                ffmpeg_location=ffmpeg_location,
+        with tempfile.TemporaryDirectory(dir=settings.TEMP_DOWNLOAD_DIR, prefix=f"{unique_job_id}_") as temp_dir_str:
+            job_temp_dir = Path(temp_dir_str)
+            logger.info(f"Using temp dir: {job_temp_dir}")
+
+            # 1) Download/extract audio
+            if is_local_file and local_file_path:
+                logger.info("Paso 1: Extrayendo audio de archivo local...")
+                download_result = extract_audio_from_local_file(
+                    video_path=local_file_path,
+                    temp_dir=job_temp_dir,
+                    unique_job_id=unique_job_id,
+                    ffmpeg_location=ffmpeg_location,
+                )
+            else:
+                logger.info("Paso 1: Descargando y extrayendo audio...")
+                download_result = download_and_extract_audio(
+                    youtube_url=youtube_url,
+                    temp_dir=job_temp_dir,
+                    unique_job_id=unique_job_id,
+                    ffmpeg_location=ffmpeg_location,
+                )
+            logger.info(f"Audio extraído a: {download_result.audio_path}")
+
+            # 2) Transcribe
+            logger.info("Paso 2: Transcribiendo audio...")
+            transcription_result = transcribe_audio_file(
+                audio_path=download_result.audio_path, model=model, language=language
             )
-        else:
-            logger.info("Paso 1: Descargando y extrayendo audio...")
-            download_result = download_and_extract_audio(
-                youtube_url=youtube_url,
-                temp_dir=job_temp_dir,
-                unique_job_id=unique_job_id,
-                ffmpeg_location=ffmpeg_location,
+            logger.info(f"Transcripción completada. Idioma detectado: {transcription_result.language}")
+
+            # 3) Save transcript
+            logger.info("Paso 3: Guardando transcripción...")
+            normalized_title = utils.normalize_title_for_filename(title)
+            output_filename_base = (
+                f"{normalized_title}_vid_{download_result.video_id}_job_{unique_job_id}"
             )
-        logger.info(f"Audio extraído a: {download_result.audio_path}")
+            transcript_path = utils.save_transcription_to_file(
+                transcription_text=transcription_result.text,
+                output_filename_no_ext=output_filename_base,
+                output_dir=settings.OUTPUT_TRANSCRIPTS_DIR,
+                original_title=title,
+            )
 
-        # 2) Transcribe
-        logger.info("Paso 2: Transcribiendo audio...")
-        transcription_result = transcribe_audio_file(
-            audio_path=download_result.audio_path, model=model, language=language
-        )
-        logger.info(f"Transcripción completada. Idioma detectado: {transcription_result.language}")
+            if not transcript_path:
+                raise OSError("No se pudo guardar el archivo de transcripción.")
 
-        # 3) Save transcript
-        logger.info("Paso 3: Guardando transcripción...")
-        normalized_title = utils.normalize_title_for_filename(title)
-        output_filename_base = (
-            f"{normalized_title}_vid_{download_result.video_id}_job_{unique_job_id}"
-        )
-        transcript_path = utils.save_transcription_to_file(
-            transcription_text=transcription_result.text,
-            output_filename_no_ext=output_filename_base,
-            output_dir=settings.OUTPUT_TRANSCRIPTS_DIR,
-            original_title=title,
-        )
+            logger.info(f"✔ Transcripción guardada exitosamente en: {transcript_path}")
+            print(f"\n✔ Transcripción guardada en: {transcript_path}")
 
-        if not transcript_path:
-            raise OSError("No se pudo guardar el archivo de transcripción.")
+            # Cache transcript for future runs if enabled (only for YouTube URLs, not Drive or local files)
+            try:
+                if (reuse_transcripts or settings.TRANSCRIPT_CACHE_ENABLED) and not is_local_file and not is_drive_url:
+                    video_id_for_cache = download_result.video_id
+                    
+                    if video_id_for_cache:
+                        cache_path = settings.TRANSCRIPT_CACHE_DIR / f"{video_id_for_cache}.txt"
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        cache_path.write_text(
+                            transcript_path.read_text(encoding="utf-8"), encoding="utf-8"
+                        )
+            except Exception as e:
+                logger.warning(f"No se pudo escribir transcripción al caché: {e}")
 
-        logger.info(f"✔ Transcripción guardada exitosamente en: {transcript_path}")
-        print(f"\n✔ Transcripción guardada en: {transcript_path}")
-
-        # Cache transcript for future runs if enabled (only for YouTube URLs, not Drive or local files)
-        try:
-            if (reuse_transcripts or settings.TRANSCRIPT_CACHE_ENABLED) and not is_local_file and not is_drive_url:
-                video_id_for_cache: str | None = None
-                try:
-                    import yt_dlp
-
-                    with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
-                        info = ydl.extract_info(youtube_url, download=False)
-                        if info:
-                            video_id_for_cache = info.get("id")
-                except Exception:
-                    video_id_for_cache = None
-
-                if not video_id_for_cache:
-                    import re
-
-                    m = re.search(r"v=([A-Za-z0-9_-]{11})", youtube_url)
-                    if not m:
-                        m = re.search(r"youtu\.be/([A-Za-z0-9_-]{11})", youtube_url)
-                    video_id_for_cache = m.group(1) if m else None
-
-                if video_id_for_cache:
-                    cache_path = settings.TRANSCRIPT_CACHE_DIR / f"{video_id_for_cache}.txt"
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    cache_path.write_text(
-                        transcript_path.read_text(encoding="utf-8"), encoding="utf-8"
-                    )
-        except Exception as e:
-            logger.warning(f"No se pudo escribir transcripción al caché: {e}")
-
-        # 4) Generate EN summary (only if requested)
-        if not generate_summary:
-            logger.info("Solo transcripción solicitada (sin --summarize)")
-            return transcript_path, None, None, None
-
-        logger.info("Paso 4: Generando resumen con IA (inglés)...")
-        try:
-
-            ok, reason = is_model_configured(settings.SUMMARIZER_MODEL)
-            if not ok:
-                logger.warning(f"{reason}. Saltando resumen y Post Kits.")
-                print(f"\n⚠️  Advertencia: {reason}. Se omite el resumen y Post Kits.")
+            # 4) Generate EN summary (only if requested)
+            if not generate_summary:
+                logger.info("Solo transcripción solicitada (sin --summarize)")
                 return transcript_path, None, None, None
 
-            # Use empty URL for local files in summary generation
-            video_url_for_summary = youtube_url if not is_local_file else ""
-            summary_en = create_summary(
-                transcript=transcription_result.text,
-                video_title=title,
-                video_url=video_url_for_summary,
-                video_id=download_result.video_id,
-            )
-
-            settings.SUMMARY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            summary_filename_en = f"{output_filename_base}_summary_EN.md"
-            summary_path_en = settings.SUMMARY_OUTPUT_DIR / summary_filename_en
-            summary_path_en.write_text(summary_en.to_markdown(), encoding="utf-8")
-
-            logger.info(f"✔ Resumen EN guardado exitosamente en: {summary_path_en}")
-            print(f"✔ Resumen (EN) guardado en: {summary_path_en}")
-
-            # 5) Translate summary to ES
-            logger.info("Paso 5: Traduciendo resumen a español...")
+            logger.info("Paso 4: Generando resumen con IA (inglés)...")
             try:
-                translator = ScriptTranslator(use_translation_model=True)
-                summary_es = translator.translate_summary(summary_en)
 
-                summary_filename_es = f"{output_filename_base}_summary_ES.md"
-                summary_path_es = settings.SUMMARY_OUTPUT_DIR / summary_filename_es
-                summary_path_es.write_text(summary_es.to_markdown(), encoding="utf-8")
+                ok, reason = is_model_configured(settings.SUMMARIZER_MODEL)
+                if not ok:
+                    logger.warning(f"{reason}. Saltando resumen y Post Kits.")
+                    print(f"\n⚠️  Advertencia: {reason}. Se omite el resumen y Post Kits.")
+                    return transcript_path, None, None, None
 
-                logger.info(f"✔ Resumen ES guardado exitosamente en: {summary_path_es}")
-                print(f"✔ Resumen (ES) guardado en: {summary_path_es}")
+                # Use empty URL for local files in summary generation
+                video_url_for_summary = youtube_url if not is_local_file else ""
+                summary_en = create_summary(
+                    transcript=transcription_result.text,
+                    video_title=title,
+                    video_url=video_url_for_summary,
+                    video_id=download_result.video_id,
+                )
 
-                # 6) Post Kits optionally
-                post_kits_path = None
-                if generate_post_kits:
-                    ok_pk, reason_pk = is_model_configured(settings.SUMMARIZER_MODEL)
-                    if not ok_pk:
-                        logger.warning(f"Sin LLM configurado para Post Kits: {reason_pk}.")
-                    else:
-                        try:
-                            from yt_transcriber.post_kits_generator import (
-                                generate_post_kits as gen_kits,
-                            )
+                settings.SUMMARY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                summary_filename_en = f"{output_filename_base}_summary_EN.md"
+                summary_path_en = settings.SUMMARY_OUTPUT_DIR / summary_filename_en
+                summary_path_en.write_text(summary_en.to_markdown(), encoding="utf-8")
 
-                            # Use empty URL for local files in post kits
-                            video_url_for_kits = youtube_url if not is_local_file else ""
-                            post_kits = gen_kits(
-                                summary=summary_en,
-                                video_title=title,
-                                video_url=video_url_for_kits,
-                            )
-                            post_kits_filename = f"{output_filename_base}_post_kits.md"
-                            post_kits_path = settings.SUMMARY_OUTPUT_DIR / post_kits_filename
-                            post_kits_path.write_text(post_kits.to_markdown(), encoding="utf-8")
+                logger.info(f"✔ Resumen EN guardado exitosamente en: {summary_path_en}")
+                print(f"✔ Resumen (EN) guardado en: {summary_path_en}")
 
-                            logger.info(f"✔ Post Kits guardado exitosamente en: {post_kits_path}")
-                            print(f"✔ Post Kits guardado en: {post_kits_path}")
+                # 5) Translate summary to ES
+                logger.info("Paso 5: Traduciendo resumen a español...")
+                try:
+                    translator = ScriptTranslator(use_translation_model=True)
+                    summary_es = translator.translate_summary(summary_en)
 
-                        except Exception as e:
-                            logger.warning(
-                                f"No se pudieron generar los Post Kits (continuando): {e}"
-                            )
-                            print(
-                                f"\n⚠️  Advertencia: No se pudieron generar los Post Kits: {e}",
-                                file=sys.stderr,
-                            )
+                    summary_filename_es = f"{output_filename_base}_summary_ES.md"
+                    summary_path_es = settings.SUMMARY_OUTPUT_DIR / summary_filename_es
+                    summary_path_es.write_text(summary_es.to_markdown(), encoding="utf-8")
 
-                return transcript_path, summary_path_en, summary_path_es, post_kits_path
+                    logger.info(f"✔ Resumen ES guardado exitosamente en: {summary_path_es}")
+                    print(f"✔ Resumen (ES) guardado en: {summary_path_es}")
+
+                    # 6) Post Kits optionally
+                    post_kits_path = None
+                    if generate_post_kits:
+                        ok_pk, reason_pk = is_model_configured(settings.SUMMARIZER_MODEL)
+                        if not ok_pk:
+                            logger.warning(f"Sin LLM configurado para Post Kits: {reason_pk}.")
+                        else:
+                            try:
+                                from yt_transcriber.post_kits_generator import (
+                                    generate_post_kits as gen_kits,
+                                )
+
+                                # Use empty URL for local files in post kits
+                                video_url_for_kits = youtube_url if not is_local_file else ""
+                                post_kits = gen_kits(
+                                    summary=summary_en,
+                                    video_title=title,
+                                    video_url=video_url_for_kits,
+                                )
+                                post_kits_filename = f"{output_filename_base}_post_kits.md"
+                                post_kits_path = settings.SUMMARY_OUTPUT_DIR / post_kits_filename
+                                post_kits_path.write_text(post_kits.to_markdown(), encoding="utf-8")
+
+                                logger.info(f"✔ Post Kits guardado exitosamente en: {post_kits_path}")
+                                print(f"✔ Post Kits guardado en: {post_kits_path}")
+
+                            except Exception as e:
+                                logger.warning(
+                                    f"No se pudieron generar los Post Kits (continuando): {e}"
+                                )
+                                print(
+                                    f"\n⚠️  Advertencia: No se pudieron generar los Post Kits: {e}",
+                                    file=sys.stderr,
+                                )
+
+                    return transcript_path, summary_path_en, summary_path_es, post_kits_path
+
+                except Exception as e:
+                    logger.warning(f"No se pudo traducir el resumen (continuando): {e}")
+                    print(f"\n⚠️  Advertencia: No se pudo traducir el resumen: {e}", file=sys.stderr)
+                    return transcript_path, summary_path_en, None, None
 
             except Exception as e:
-                logger.warning(f"No se pudo traducir el resumen (continuando): {e}")
-                print(f"\n⚠️  Advertencia: No se pudo traducir el resumen: {e}", file=sys.stderr)
-                return transcript_path, summary_path_en, None, None
-
-        except Exception as e:
-            logger.warning(f"No se pudo generar el resumen (continuando): {e}")
-            print(f"\n⚠️  Advertencia: No se pudo generar el resumen: {e}", file=sys.stderr)
-            return transcript_path, None, None, None
+                logger.warning(f"No se pudo generar el resumen (continuando): {e}")
+                print(f"\n⚠️  Advertencia: No se pudo generar el resumen: {e}", file=sys.stderr)
+                return transcript_path, None, None, None
 
     except (OSError, DownloadError, TranscriptionError) as e:
         logger.error(f"Ha ocurrido un error en el proceso: {e}", exc_info=True)
@@ -386,6 +392,4 @@ def process_transcription(
         logger.critical(f"Ocurrió un error inesperado: {e}", exc_info=True)
         print(f"\nError inesperado: {e}", file=sys.stderr)
         return None, None, None, None
-    finally:
-        logger.info(f"Limpiando directorio temporal: {job_temp_dir}")
-        utils.cleanup_temp_dir(job_temp_dir)
+
