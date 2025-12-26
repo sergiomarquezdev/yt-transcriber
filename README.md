@@ -1,6 +1,6 @@
 # YouTube Video Transcriber & Summarizer
 
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PyTorch](https://img.shields.io/badge/PyTorch-CUDA%2012.8-red.svg)](https://pytorch.org/)
 
@@ -48,7 +48,7 @@ yt-transcriber transcribe --url "https://www.youtube.com/watch?v=VIDEO_ID"
 
 ## Prerequisites
 
-- **Python 3.13+**
+- **Python 3.12+**
 - **FFmpeg** - Required for audio processing
 - **CUDA 12.8** (Optional) - For GPU acceleration
 
