@@ -128,7 +128,7 @@ class TestDownloadAndExtractAudio:
     @pytest.fixture
     def mock_yt_dlp(self):
         """Create mock yt-dlp."""
-        with patch("yt_dlp.YoutubeDL") as mock:
+        with patch("core.media_downloader.yt_dlp.YoutubeDL") as mock:
             yield mock
 
     def test_successful_youtube_download(self, mock_yt_dlp, temp_dir):

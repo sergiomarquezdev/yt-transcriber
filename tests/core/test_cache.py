@@ -179,7 +179,7 @@ class TestLLMCache:
         response = {"text": "Response"}
 
         # Mock random to prevent probabilistic cleanup during set()
-        with patch("core.cache.random.random", return_value=1.0):
+        with patch("random.random", return_value=1.0):
             cache.set("model", "v1.0", sample_inputs, response)
         cache_files_before = list(temp_cache_dir.glob("*.json"))
         assert len(cache_files_before) == 1
@@ -199,7 +199,7 @@ class TestLLMCache:
         cache = LLMCache(cache_dir=temp_cache_dir, ttl_days=0)
 
         # Mock random to prevent probabilistic cleanup during set()
-        with patch("core.cache.random.random", return_value=1.0):
+        with patch("random.random", return_value=1.0):
             # Create multiple cache entries
             cache.set("model", "v1.0", {"a": "1"}, {"text": "1"})
             cache.set("model", "v1.0", {"b": "2"}, {"text": "2"})
