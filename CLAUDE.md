@@ -37,8 +37,8 @@ mypy .
 
 - **`core/`** - Shared infrastructure used across pipelines:
   - `settings.py` - Pydantic-validated config from `.env` (AppSettings singleton)
-  - `llm.py` - Multi-provider LLM dispatch (Gemini/OpenAI/Anthropic) with caching
-  - `cache.py` - LLM response cache (in-memory LRU + disk persistence)
+  - `llm.py` - Multi-provider LLM dispatch (Gemini/OpenAI/Anthropic) with caching. Exceptions: `LLMError` (base), `LLMProviderError` (API errors), `LLMConfigurationError` (missing keys)
+  - `cache.py` - LLM response cache (in-memory LRU with 1000 entry limit + disk persistence)
   - `media_downloader.py` - yt-dlp wrapper for YouTube/Google Drive/local files
   - `media_transcriber.py` - Whisper transcription wrapper
   - `translator.py` - Summary translation (EN→ES)
