@@ -307,9 +307,15 @@ class TestGeneratePostKits:
     ):
         """Test generating complete post kits."""
         with patch("yt_transcriber.post_kits_generator._generate_linkedin_post") as mock_linkedin:
-            with patch("yt_transcriber.post_kits_generator._generate_twitter_thread") as mock_twitter:
-                with patch("yt_transcriber.post_kits_generator._translate_linkedin_post") as mock_trans_li:
-                    with patch("yt_transcriber.post_kits_generator._translate_twitter_thread") as mock_trans_tw:
+            with patch(
+                "yt_transcriber.post_kits_generator._generate_twitter_thread"
+            ) as mock_twitter:
+                with patch(
+                    "yt_transcriber.post_kits_generator._translate_linkedin_post"
+                ) as mock_trans_li:
+                    with patch(
+                        "yt_transcriber.post_kits_generator._translate_twitter_thread"
+                    ) as mock_trans_tw:
                         with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
                             mock_settings.POST_KITS_LINKEDIN_MIN_INSIGHTS = 1
                             mock_settings.POST_KITS_LINKEDIN_MAX_INSIGHTS = 10
@@ -321,12 +327,15 @@ class TestGeneratePostKits:
                             mock_settings.POST_KITS_TWITTER_MAX_HASHTAGS = 5
 
                             mock_linkedin.return_value = LinkedInPost(
-                                hook="Test", intro="Test", insights=["A", "B", "C", "D"],
-                                why_it_matters="Test", cta="Test?", tags="#Test"
+                                hook="Test",
+                                intro="Test",
+                                insights=["A", "B", "C", "D"],
+                                why_it_matters="Test",
+                                cta="Test?",
+                                tags="#Test",
                             )
                             mock_twitter.return_value = TwitterThread(
-                                tweets=["T" + str(i) for i in range(10)],
-                                hashtags=["Test"]
+                                tweets=["T" + str(i) for i in range(10)], hashtags=["Test"]
                             )
                             mock_trans_li.return_value = mock_linkedin.return_value
                             mock_trans_tw.return_value = mock_twitter.return_value
@@ -345,9 +354,15 @@ class TestGeneratePostKits:
     ):
         """Test fallback when LinkedIn translation fails."""
         with patch("yt_transcriber.post_kits_generator._generate_linkedin_post") as mock_linkedin:
-            with patch("yt_transcriber.post_kits_generator._generate_twitter_thread") as mock_twitter:
-                with patch("yt_transcriber.post_kits_generator._translate_linkedin_post") as mock_trans_li:
-                    with patch("yt_transcriber.post_kits_generator._translate_twitter_thread") as mock_trans_tw:
+            with patch(
+                "yt_transcriber.post_kits_generator._generate_twitter_thread"
+            ) as mock_twitter:
+                with patch(
+                    "yt_transcriber.post_kits_generator._translate_linkedin_post"
+                ) as mock_trans_li:
+                    with patch(
+                        "yt_transcriber.post_kits_generator._translate_twitter_thread"
+                    ) as mock_trans_tw:
                         with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
                             mock_settings.POST_KITS_LINKEDIN_MIN_INSIGHTS = 1
                             mock_settings.POST_KITS_LINKEDIN_MAX_INSIGHTS = 10
@@ -359,13 +374,16 @@ class TestGeneratePostKits:
                             mock_settings.POST_KITS_TWITTER_MAX_HASHTAGS = 5
 
                             original_linkedin = LinkedInPost(
-                                hook="Test EN", intro="Test", insights=["A", "B", "C", "D"],
-                                why_it_matters="Test", cta="Test?", tags="#Test"
+                                hook="Test EN",
+                                intro="Test",
+                                insights=["A", "B", "C", "D"],
+                                why_it_matters="Test",
+                                cta="Test?",
+                                tags="#Test",
                             )
                             mock_linkedin.return_value = original_linkedin
                             mock_twitter.return_value = TwitterThread(
-                                tweets=["T" + str(i) for i in range(10)],
-                                hashtags=["Test"]
+                                tweets=["T" + str(i) for i in range(10)], hashtags=["Test"]
                             )
                             # Translation fails
                             mock_trans_li.side_effect = PostKitsError("Translation failed")
@@ -385,9 +403,15 @@ class TestGeneratePostKits:
     ):
         """Test that validation warnings are logged but don't fail."""
         with patch("yt_transcriber.post_kits_generator._generate_linkedin_post") as mock_linkedin:
-            with patch("yt_transcriber.post_kits_generator._generate_twitter_thread") as mock_twitter:
-                with patch("yt_transcriber.post_kits_generator._translate_linkedin_post") as mock_trans_li:
-                    with patch("yt_transcriber.post_kits_generator._translate_twitter_thread") as mock_trans_tw:
+            with patch(
+                "yt_transcriber.post_kits_generator._generate_twitter_thread"
+            ) as mock_twitter:
+                with patch(
+                    "yt_transcriber.post_kits_generator._translate_linkedin_post"
+                ) as mock_trans_li:
+                    with patch(
+                        "yt_transcriber.post_kits_generator._translate_twitter_thread"
+                    ) as mock_trans_tw:
                         with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
                             # Set strict validation that will fail
                             mock_settings.POST_KITS_LINKEDIN_MIN_INSIGHTS = 10  # Too strict
@@ -400,12 +424,15 @@ class TestGeneratePostKits:
                             mock_settings.POST_KITS_TWITTER_MAX_HASHTAGS = 5
 
                             mock_linkedin.return_value = LinkedInPost(
-                                hook="Test", intro="Test", insights=["A", "B"],  # Too few
-                                why_it_matters="Test", cta="Test?", tags="#Test"
+                                hook="Test",
+                                intro="Test",
+                                insights=["A", "B"],  # Too few
+                                why_it_matters="Test",
+                                cta="Test?",
+                                tags="#Test",
                             )
                             mock_twitter.return_value = TwitterThread(
-                                tweets=["T" + str(i) for i in range(10)],
-                                hashtags=["Test"]
+                                tweets=["T" + str(i) for i in range(10)], hashtags=["Test"]
                             )
                             mock_trans_li.return_value = mock_linkedin.return_value
                             mock_trans_tw.return_value = mock_twitter.return_value

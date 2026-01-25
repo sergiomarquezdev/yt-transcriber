@@ -5,8 +5,12 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from core.settings import settings
+
+if TYPE_CHECKING:
+    import whisper
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,7 @@ def setup_logging():
 
 
 from yt_transcriber.whisper_context import whisper_model_context
+
 
 class _Console:
     def print(self, *args, **kwargs):
@@ -50,7 +55,7 @@ def get_youtube_title(youtube_url: str) -> str:
 def process_transcription(
     youtube_url: str,
     title: str,
-    model,
+    model: "whisper.Whisper",
     language: str | None = None,
     ffmpeg_location: str | None = None,
     generate_post_kits: bool = False,
@@ -95,20 +100,28 @@ def command_transcribe(args):
             logger.info(f"Archivo local detectado: {local_file_path}")
         else:
             logger.error(f"La ruta no es una URL valida ni un archivo existente: {args.url}")
-            print("Error: Debe ser una URL valida (YouTube o Google Drive) o una ruta a un archivo de video local.", file=sys.stderr)
+            print(
+                "Error: Debe ser una URL valida (YouTube o Google Drive) o una ruta a un archivo de video local.",
+                file=sys.stderr,
+            )
             sys.exit(1)
     else:
         from core.media_downloader import is_google_drive_url
+
         is_drive_url = is_google_drive_url(args.url)
 
         if is_drive_url:
             logger.info(f"URL de Google Drive detectada: {args.url}")
         else:
             if not (
-                args.url.startswith("https://www.youtube.com/") or args.url.startswith("https://youtu.be/")
+                args.url.startswith("https://www.youtube.com/")
+                or args.url.startswith("https://youtu.be/")
             ):
                 logger.error(f"URL no valida: {args.url}")
-                print("Error: La URL debe ser de YouTube o Google Drive, o una ruta a un archivo local.", file=sys.stderr)
+                print(
+                    "Error: La URL debe ser de YouTube o Google Drive, o una ruta a un archivo local.",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
 
     if is_local_file:
@@ -196,6 +209,7 @@ def run_transcribe_command(
             return None, None, None, None
     else:
         from core.media_downloader import is_google_drive_url
+
         is_drive_url = is_google_drive_url(url)
 
         if not is_drive_url and not (
@@ -210,15 +224,17 @@ def run_transcribe_command(
 
     try:
         with whisper_model_context() as model:
-            transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
-                youtube_url=url,
-                title=title,
-                model=model,
-                language=lang,
-                ffmpeg_location=ffmpeg_location,
-                generate_post_kits=generate_post_kits,
-                generate_summary=generate_summary,
-                reuse_transcripts=reuse_transcripts,
+            transcript_path, summary_path_en, summary_path_es, post_kits_path = (
+                process_transcription(
+                    youtube_url=url,
+                    title=title,
+                    model=model,
+                    language=lang,
+                    ffmpeg_location=ffmpeg_location,
+                    generate_post_kits=generate_post_kits,
+                    generate_summary=generate_summary,
+                    reuse_transcripts=reuse_transcripts,
+                )
             )
     except Exception as e:
         logger.error(f"Transcription failed: {e}")
@@ -250,23 +266,33 @@ def main():
         help="Transcribe un video de YouTube, Google Drive o archivo local",
     )
     transcribe_parser.add_argument(
-        "-u", "--url", required=True, type=str,
+        "-u",
+        "--url",
+        required=True,
+        type=str,
         help="URL de YouTube/Google Drive o ruta a archivo local.",
     )
     transcribe_parser.add_argument(
-        "-l", "--language", type=str, default=None,
+        "-l",
+        "--language",
+        type=str,
+        default=None,
         help="Codigo de idioma (ej. 'en', 'es') para forzar la transcripcion.",
     )
     transcribe_parser.add_argument(
-        "--ffmpeg-location", type=str, default=None,
+        "--ffmpeg-location",
+        type=str,
+        default=None,
         help="Ruta personalizada a FFmpeg.",
     )
     transcribe_parser.add_argument(
-        "--summarize", action="store_true",
+        "--summarize",
+        action="store_true",
         help="Generar resumenes EN + ES ademas de la transcripcion.",
     )
     transcribe_parser.add_argument(
-        "--post-kits", action="store_true",
+        "--post-kits",
+        action="store_true",
         help="Generar LinkedIn post y Twitter thread (implica --summarize).",
     )
 

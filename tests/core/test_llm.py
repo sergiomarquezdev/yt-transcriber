@@ -121,7 +121,7 @@ class TestIsModelConfigured:
         """Test unknown provider returns error."""
         ok, reason = is_model_configured("unknown:model")
         assert ok is False
-        assert "desconocido" in reason.lower()
+        assert "unknown provider" in reason.lower()
 
 
 class TestCallLlmDirect:
@@ -183,7 +183,7 @@ class TestCallLlmDirect:
 
     def test_unknown_provider_raises(self):
         """Test that unknown provider raises error."""
-        with pytest.raises(ValueError, match="desconocido"):
+        with pytest.raises(ValueError, match="Unknown LLM provider"):
             _call_llm_direct(
                 provider="unknown",
                 model_name="model",

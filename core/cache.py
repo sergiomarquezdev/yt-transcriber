@@ -14,53 +14,86 @@ This ensures that:
 import hashlib
 import json
 import logging
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Default maximum entries in memory cache (LRU eviction when exceeded)
+DEFAULT_MAX_MEM_CACHE_SIZE = 1000
+
 
 class LLMCache:
     """Simple file-based LLM response cache with intelligent keying."""
 
-    def __init__(self, cache_dir: Path, ttl_days: int = 7):
+    def __init__(
+        self,
+        cache_dir: Path,
+        ttl_days: int = 7,
+        max_mem_cache_size: int = DEFAULT_MAX_MEM_CACHE_SIZE,
+    ):
         """Initialize cache.
 
         Args:
             cache_dir: Directory to store cache files
             ttl_days: Time-to-live in days for cached responses
+            max_mem_cache_size: Maximum entries in memory cache (LRU eviction)
         """
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl = timedelta(days=ttl_days)
-        # In-memory LRU cache (simple dict for this session)
-        self._mem_cache: dict[str, dict] = {}
-        logger.debug(f"LLM cache initialized at {cache_dir} with TTL={ttl_days} days")
+        self._max_mem_cache_size = max_mem_cache_size
+        # In-memory LRU cache using OrderedDict for efficient eviction
+        self._mem_cache: OrderedDict[str, dict] = OrderedDict()
+        logger.debug(
+            f"LLM cache initialized at {cache_dir} with TTL={ttl_days} days, "
+            f"max_mem_cache_size={max_mem_cache_size}"
+        )
 
     def _make_key(self, model: str, prompt_version: str, inputs: dict) -> str:
         """Generate cache key from model, prompt version, and input content."""
         # Single pass hashing for efficiency (Issue #9)
-        payload = {
-            "m": model,
-            "v": prompt_version,
-            "i": inputs
-        }
+        payload = {"m": model, "v": prompt_version, "i": inputs}
         # Dump with sort_keys to ensure consistency
         payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
         cache_key = hashlib.sha256(payload_bytes).hexdigest()
         return cache_key
 
+    def _update_mem_cache(self, cache_key: str, data: Any, expires: datetime) -> None:
+        """Update memory cache with LRU eviction.
+
+        Args:
+            cache_key: Cache key
+            data: Data to store
+            expires: Expiration datetime
+        """
+        # If key exists, remove it first to update position
+        if cache_key in self._mem_cache:
+            del self._mem_cache[cache_key]
+
+        # Evict oldest entries if at capacity
+        while len(self._mem_cache) >= self._max_mem_cache_size:
+            oldest_key = next(iter(self._mem_cache))
+            del self._mem_cache[oldest_key]
+            logger.debug(f"LRU eviction: removed {oldest_key[:8]}...")
+
+        # Add new entry at end (most recently used)
+        self._mem_cache[cache_key] = {"data": data, "expires": expires}
+
     def get(self, model: str, prompt_version: str, inputs: dict) -> dict | None:
         """Get cached response if it exists and is not expired."""
         cache_key = self._make_key(model, prompt_version, inputs)
-        
+
         # 1. Check in-memory cache first (Issue #6 - reduce sync I/O)
         if cache_key in self._mem_cache:
             entry = self._mem_cache[cache_key]
             # Check expiry (fast in-memory check)
             if datetime.now() < entry["expires"]:
-                logger.debug(f"✅ Memory Cache HIT: {cache_key[:8]}...")
+                # Move to end for LRU behavior (most recently used)
+                self._mem_cache.move_to_end(cache_key)
+                logger.debug(f"Memory Cache HIT: {cache_key[:8]}...")
                 return entry["data"]
             else:
                 del self._mem_cache[cache_key]
@@ -86,15 +119,12 @@ class LLMCache:
                 f"✅ Disk Cache HIT - Reusing response (saved ${cached.get('cost', 0):.4f} + {cached.get('time_saved', 0):.1f}s)"
             )
             response_obj = cached.get("response")
-            
+
             if isinstance(response_obj, dict):
-                # Populate memory cache
-                self._mem_cache[cache_key] = {
-                    "data": response_obj,
-                    "expires": expires_at
-                }
+                # Populate memory cache with LRU eviction
+                self._update_mem_cache(cache_key, response_obj, expires_at)
                 return response_obj
-            
+
             # If response isn't a dict, treat as corrupted
             logger.warning("Cache 'response' is not a dict; deleting corrupted cache file")
             cache_file.unlink(missing_ok=True)
@@ -138,19 +168,17 @@ class LLMCache:
             logger.debug(
                 f"Cache saved: {cache_key[:16]}... (expires: {expires_at.strftime('%Y-%m-%d %H:%M')})"
             )
-            
-            # Update memory cache
-            self._mem_cache[cache_key] = {
-                "data": response,
-                "expires": expires_at
-            }
+
+            # Update memory cache with LRU eviction
+            self._update_mem_cache(cache_key, response, expires_at)
 
             # Probabilistic Cleanup (Issue #13)
             # 5% chance to clean up expired files on write
             import random
+
             if random.random() < 0.05:
                 self.clear_expired()
-                
+
         except Exception as e:
             logger.warning(f"Failed to save cache: {e}")
 

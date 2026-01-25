@@ -13,6 +13,26 @@ and error semantics.
 """
 
 import logging
+
+
+class LLMError(Exception):
+    """Base exception for LLM-related errors."""
+
+    pass
+
+
+class LLMProviderError(LLMError):
+    """Error from LLM provider (API error, rate limit, etc.)."""
+
+    pass
+
+
+class LLMConfigurationError(LLMError):
+    """Error in LLM configuration (missing API key, unknown provider, etc.)."""
+
+    pass
+
+
 import os
 import time
 from collections import deque
@@ -243,7 +263,7 @@ def _call_llm_direct(
     if provider == "gemini":
         if not settings.GOOGLE_API_KEY:
             raise error_class(
-                "GOOGLE_API_KEY no configurada. Establece la variable de entorno para usar modelos Gemini."
+                "GOOGLE_API_KEY not configured. Set the environment variable to use Gemini models."
             )
         genai.configure(api_key=settings.GOOGLE_API_KEY)
         model = genai.GenerativeModel(model_name)
@@ -253,13 +273,13 @@ def _call_llm_direct(
     if provider == "openai":
         if not getattr(settings, "OPENAI_API_KEY", None) and not os.environ.get("OPENAI_API_KEY"):
             raise error_class(
-                "OPENAI_API_KEY no configurada. Establece la variable de entorno para usar modelos OpenAI."
+                "OPENAI_API_KEY not configured. Set the environment variable to use OpenAI models."
             )
         try:
             from openai import OpenAI  # type: ignore
         except Exception as ie:
             raise error_class(
-                "Paquete 'openai' no instalado. Añade 'openai' a requirements.txt e instala dependencias."
+                "Package 'openai' not installed. Add 'openai' to requirements.txt and install dependencies."
             ) from ie
 
         api_key = getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY")
@@ -289,13 +309,13 @@ def _call_llm_direct(
             "ANTHROPIC_API_KEY"
         ):
             raise error_class(
-                "ANTHROPIC_API_KEY no configurada. Establece la variable de entorno para usar modelos Anthropic."
+                "ANTHROPIC_API_KEY not configured. Set the environment variable to use Anthropic models."
             )
         try:
             from anthropic import Anthropic  # type: ignore
         except Exception as ie:
             raise error_class(
-                "Paquete 'anthropic' no instalado. Añade 'anthropic' a requirements.txt e instala dependencias."
+                "Package 'anthropic' not installed. Add 'anthropic' to requirements.txt and install dependencies."
             ) from ie
 
         api_key = getattr(settings, "ANTHROPIC_API_KEY", None) or os.environ.get(
@@ -320,8 +340,8 @@ def _call_llm_direct(
                 parts.append(text)
         return "".join(parts)
 
-    # Fallback defensivo
-    raise error_class(f"Proveedor LLM desconocido: {provider}")
+    # Defensive fallback
+    raise error_class(f"Unknown LLM provider: {provider}")
 
 
 # Backwards-compatible alias (now supports provider prefixes)
@@ -339,21 +359,21 @@ def is_model_configured(model_name: str) -> tuple[bool, str | None]:
         provider = pfx.lower()
 
     if provider == "gemini":
-        return (bool(settings.GOOGLE_API_KEY), "Falta GOOGLE_API_KEY")
+        return (bool(settings.GOOGLE_API_KEY), "Missing GOOGLE_API_KEY")
     if provider == "openai":
         import os as _os
 
         has_key = bool(getattr(settings, "OPENAI_API_KEY", "") or _os.environ.get("OPENAI_API_KEY"))
-        return (has_key, "Falta OPENAI_API_KEY")
+        return (has_key, "Missing OPENAI_API_KEY")
     if provider == "anthropic":
         import os as _os
 
         has_key = bool(
             getattr(settings, "ANTHROPIC_API_KEY", "") or _os.environ.get("ANTHROPIC_API_KEY")
         )
-        return (has_key, "Falta ANTHROPIC_API_KEY")
+        return (has_key, "Missing ANTHROPIC_API_KEY")
 
-    return False, f"Proveedor desconocido: {provider}"
+    return False, f"Unknown provider: {provider}"
 
 
 __all__ = [
@@ -361,4 +381,7 @@ __all__ = [
     "call_llm_with_cache",
     "get_llm_cache",
     "is_model_configured",
+    "LLMError",
+    "LLMProviderError",
+    "LLMConfigurationError",
 ]

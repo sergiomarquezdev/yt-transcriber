@@ -1,6 +1,5 @@
 """Tests for core.utils module."""
 
-
 import pytest
 
 from core.utils import ensure_dir_exists, normalize_title_for_filename

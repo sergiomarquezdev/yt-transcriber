@@ -14,6 +14,9 @@ from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Average speaking rate in words per minute (used for duration estimation)
+AVERAGE_WORDS_PER_MINUTE = 150
+
 
 class SummarizationError(Exception):
     """Raised when summarization fails."""
@@ -49,7 +52,7 @@ def generate_summary(
 
     # 2. Calculate statistics
     word_count = len(transcript.split())
-    duration_minutes = word_count / 150  # Average speaking rate
+    duration_minutes = word_count / AVERAGE_WORDS_PER_MINUTE
 
     # 3. Build prompt
     prompt = _build_prompt(

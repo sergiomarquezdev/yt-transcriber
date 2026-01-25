@@ -62,7 +62,7 @@ class TestTranscribeAudioFile:
         """Test that non-existent file raises TranscriptionError."""
         non_existent = temp_dir / "does_not_exist.wav"
 
-        with pytest.raises(TranscriptionError, match="no encontrado"):
+        with pytest.raises(TranscriptionError, match="not found"):
             transcribe_audio_file(
                 audio_path=non_existent,
                 model=mock_whisper_model,
@@ -100,7 +100,7 @@ class TestTranscribeAudioFile:
         """Test that Whisper errors are wrapped in TranscriptionError."""
         mock_whisper_model.transcribe.side_effect = RuntimeError("Whisper crashed")
 
-        with pytest.raises(TranscriptionError, match="inesperado"):
+        with pytest.raises(TranscriptionError, match="Unexpected"):
             transcribe_audio_file(
                 audio_path=sample_audio_path,
                 model=mock_whisper_model,

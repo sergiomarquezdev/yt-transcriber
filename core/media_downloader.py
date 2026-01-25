@@ -128,17 +128,16 @@ def download_and_extract_audio(
                         video_id = f"unknown_{unique_job_id}"
 
                 if not video_id:
-                    # Keep error message in Spanish to match tests/legacy behavior
-                    raise DownloadError(f"No se pudo extraer el ID del video de la URL: {youtube_url}")
+                    raise DownloadError(f"Could not extract video ID from URL: {youtube_url}")
             except yt_dlp.utils.DownloadError as e:
                 if is_drive:
                     # For Drive, provide more helpful error message
                     error_msg = (
-                        f"No se pudo acceder al archivo de Google Drive: {e}\n\n"
-                        "Sugerencias:\n"
-                        "1. Asegúrate de que el archivo esté compartido con permisos de descarga\n"
-                        "2. Verifica que el enlace sea correcto\n"
-                        "3. Si el archivo tiene restricciones, descárgalo manualmente y usa la ruta local"
+                        f"Could not access Google Drive file: {e}\n\n"
+                        "Suggestions:\n"
+                        "1. Make sure the file is shared with download permissions\n"
+                        "2. Verify the link is correct\n"
+                        "3. If the file has restrictions, download it manually and use the local path"
                     )
                     raise DownloadError(error_msg) from e
                 raise
@@ -190,8 +189,7 @@ def download_and_extract_audio(
                     logger.error(
                         f"Error cleaning video '{video_path}' after audio failure: {e_clean}"
                     )
-            # Spanish message to match legacy behavior/tests
-            raise DownloadError(f"La extracción de audio falló para el video ID {video_id}.")
+            raise DownloadError(f"Audio extraction failed for video ID {video_id}.")
 
         logger.info(f"Audio extracted to: {expected_audio_path}")
         if video_path:
@@ -203,14 +201,15 @@ def download_and_extract_audio(
             video_id=video_id,
         )
 
+    except DownloadError:
+        # Re-raise our own DownloadError without wrapping
+        raise
     except yt_dlp.utils.DownloadError as e_yt:
-        logger.error(f"Error de yt-dlp para '{youtube_url}': {e_yt}")
-        # Spanish message to keep compatibility
-        raise DownloadError(f"yt-dlp falló: {e_yt}") from e_yt
+        logger.error(f"yt-dlp error for '{youtube_url}': {e_yt}")
+        raise DownloadError(f"yt-dlp failed: {e_yt}") from e_yt
     except Exception as e_gen:
-        logger.error(f"Error inesperado en descarga para '{youtube_url}': {e_gen}", exc_info=True)
-        # Spanish message to keep compatibility
-        raise DownloadError(f"Error general en descarga: {e_gen}") from e_gen
+        logger.error(f"Unexpected error downloading '{youtube_url}': {e_gen}", exc_info=True)
+        raise DownloadError(f"General download error: {e_gen}") from e_gen
 
 
 def extract_audio_from_local_file(
@@ -236,7 +235,7 @@ def extract_audio_from_local_file(
     logger.info(f"Starting audio extraction for local file: {video_path}, job_id: {unique_job_id}")
 
     if not video_path.exists():
-        raise DownloadError(f"El archivo de video no existe: {video_path}")
+        raise DownloadError(f"Video file does not exist: {video_path}")
 
     utils.ensure_dir_exists(temp_dir)
 
@@ -254,7 +253,7 @@ def extract_audio_from_local_file(
         ffmpeg_cmd = ffmpeg_location or shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
         if not ffmpeg_cmd:
             raise DownloadError(
-                "FFmpeg no encontrado. Por favor, instala FFmpeg o proporciona la ruta con --ffmpeg-location"
+                "FFmpeg not found. Please install FFmpeg or provide the path with --ffmpeg-location"
             )
 
         logger.info(f"Using FFmpeg at: {ffmpeg_cmd}")
@@ -287,12 +286,12 @@ def extract_audio_from_local_file(
 
         # Verify audio file was created
         if not expected_audio_path.exists():
-            logger.error(f"FFmpeg no generó el archivo de audio esperado: {expected_audio_path}")
+            logger.error(f"FFmpeg did not generate expected audio file: {expected_audio_path}")
             if result.stderr:
                 logger.error(f"FFmpeg stderr: {result.stderr}")
-            raise DownloadError(f"La extracción de audio falló para el archivo: {video_path}")
+            raise DownloadError(f"Audio extraction failed for file: {video_path}")
 
-        logger.info(f"Audio extraído exitosamente a: {expected_audio_path}")
+        logger.info(f"Audio extracted successfully to: {expected_audio_path}")
 
         return DownloadResult(
             audio_path=expected_audio_path,
@@ -302,12 +301,16 @@ def extract_audio_from_local_file(
 
     except subprocess.TimeoutExpired as e:
         logger.error(f"FFmpeg timed out after {e.timeout} seconds.")
-        raise DownloadError(f"Se agotó el tiempo de espera de FFmpeg (timeout={e.timeout}s).") from e
+        raise DownloadError(f"FFmpeg timed out (timeout={e.timeout}s).") from e
     except subprocess.CalledProcessError as e:
-        logger.error(f"Error ejecutando FFmpeg: {e}")
+        logger.error(f"Error running FFmpeg: {e}")
         if e.stderr:
             logger.error(f"FFmpeg stderr: {e.stderr}")
-        raise DownloadError(f"FFmpeg falló al extraer audio: {e.stderr if e.stderr else str(e)}") from e
+        raise DownloadError(
+            f"FFmpeg failed to extract audio: {e.stderr if e.stderr else str(e)}"
+        ) from e
     except Exception as e_gen:
-        logger.error(f"Error inesperado extrayendo audio de '{video_path}': {e_gen}", exc_info=True)
-        raise DownloadError(f"Error general en extracción de audio: {e_gen}") from e_gen
+        logger.error(
+            f"Unexpected error extracting audio from '{video_path}': {e_gen}", exc_info=True
+        )
+        raise DownloadError(f"General audio extraction error: {e_gen}") from e_gen

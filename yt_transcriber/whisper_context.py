@@ -1,8 +1,8 @@
-
-import logging
 import gc
+import logging
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator, Any
+from typing import Any
 
 from core.settings import settings
 
@@ -16,12 +16,13 @@ except ImportError:
     torch = None
     whisper = None
 
+
 @contextmanager
-def whisper_model_context() -> Generator[Any, None, None]:
+def whisper_model_context() -> Generator[Any]:
     """
     Context manager for loading and unloading the Whisper model.
     Ensures that memory (VRAM/RAM) is released after use.
-    
+
     Yields:
         model: The loaded Whisper model.
     """
@@ -47,12 +48,12 @@ def whisper_model_context() -> Generator[Any, None, None]:
         if model:
             logger.info("Unloading Whisper model...")
             del model
-            
+
         # Force garbage collection
         gc.collect()
-        
+
         # Release CUDA memory if used
         if device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
-            
+
         logger.info("Whisper model unloaded and memory released.")

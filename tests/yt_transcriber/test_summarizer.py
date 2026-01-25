@@ -153,9 +153,7 @@ Este es el contenido del resumen.
 
 ## 🔑 Puntos Clave
 """
-        result = _extract_section(
-            text, r"## 🎯 Resumen Ejecutivo|## 🎯 Executive Summary"
-        )
+        result = _extract_section(text, r"## 🎯 Resumen Ejecutivo|## 🎯 Executive Summary")
 
         assert "contenido del resumen" in result
 

@@ -251,14 +251,18 @@ class TestProcessTranscription:
                         assert transcript is not None
                         assert summary_en is None
 
-    def test_generate_summary_true_calls_summarizer(self, mock_dependencies, mock_whisper_model, temp_dir):
+    def test_generate_summary_true_calls_summarizer(
+        self, mock_dependencies, mock_whisper_model, temp_dir
+    ):
         """Test that generate_summary=True triggers summary generation."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
             with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
                 with patch("yt_transcriber.service.utils") as mock_utils:
                     with patch("yt_transcriber.service.create_summary") as mock_summary:
                         with patch("yt_transcriber.service.is_model_configured") as mock_model_cfg:
-                            with patch("yt_transcriber.service.ScriptTranslator") as mock_translator:
+                            with patch(
+                                "yt_transcriber.service.ScriptTranslator"
+                            ) as mock_translator:
                                 audio_path = temp_dir / "temp" / "audio.wav"
                                 audio_path.parent.mkdir(exist_ok=True)
                                 audio_path.touch()
@@ -290,7 +294,9 @@ class TestProcessTranscription:
 
                                 # Mock translator
                                 mock_translator_instance = MagicMock()
-                                mock_translator_instance.translate_summary.return_value = mock_summary_obj
+                                mock_translator_instance.translate_summary.return_value = (
+                                    mock_summary_obj
+                                )
                                 mock_translator.return_value = mock_translator_instance
 
                                 result = process_transcription(
@@ -310,7 +316,9 @@ class TestProcessTranscription:
     # CLEANUP TESTS
     # =========================================================================
 
-    @pytest.mark.skip(reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)")
+    @pytest.mark.skip(
+        reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)"
+    )
     def test_cleanup_called_on_success(self, mock_dependencies, mock_whisper_model, temp_dir):
         """Test that cleanup is called on success."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
@@ -346,7 +354,9 @@ class TestProcessTranscription:
 
                     mock_utils.cleanup_temp_dir.assert_called_once()
 
-    @pytest.mark.skip(reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)")
+    @pytest.mark.skip(
+        reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)"
+    )
     def test_cleanup_called_on_error(self, mock_dependencies, mock_whisper_model):
         """Test that cleanup is called even on error."""
         with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:

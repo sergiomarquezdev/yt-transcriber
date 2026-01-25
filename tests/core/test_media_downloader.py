@@ -168,7 +168,7 @@ class TestDownloadAndExtractAudio:
         # Don't create audio file - simulates extraction failure
 
         with patch("core.media_downloader.utils.ensure_dir_exists"):
-            with pytest.raises(DownloadError, match="audio"):
+            with pytest.raises(DownloadError, match="Audio extraction failed"):
                 download_and_extract_audio(
                     youtube_url="https://www.youtube.com/watch?v=test123",
                     temp_dir=temp_dir,
@@ -247,7 +247,7 @@ class TestExtractAudioFromLocalFile:
         """Test that non-existent file raises DownloadError."""
         non_existent = temp_dir / "does_not_exist.mp4"
 
-        with pytest.raises(DownloadError, match="no existe"):
+        with pytest.raises(DownloadError, match="does not exist"):
             extract_audio_from_local_file(
                 video_path=non_existent,
                 temp_dir=temp_dir,
@@ -281,7 +281,7 @@ class TestExtractAudioFromLocalFile:
         with patch("core.media_downloader.shutil.which") as mock_which:
             mock_which.return_value = None
 
-            with pytest.raises(DownloadError, match="FFmpeg no encontrado"):
+            with pytest.raises(DownloadError, match="FFmpeg not found"):
                 extract_audio_from_local_file(
                     video_path=sample_video_path,
                     temp_dir=temp_dir,
@@ -300,7 +300,7 @@ class TestExtractAudioFromLocalFile:
                     1, "ffmpeg", stderr="Conversion failed"
                 )
 
-                with pytest.raises(DownloadError, match="FFmpeg falló"):
+                with pytest.raises(DownloadError, match="FFmpeg failed"):
                     extract_audio_from_local_file(
                         video_path=sample_video_path,
                         temp_dir=temp_dir,

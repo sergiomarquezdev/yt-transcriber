@@ -1,7 +1,5 @@
 """Tests for yt_transcriber.utils module."""
 
-
-
 from yt_transcriber.utils import (
     cleanup_temp_dir,
     cleanup_temp_files,

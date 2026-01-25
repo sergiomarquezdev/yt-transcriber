@@ -47,9 +47,8 @@ def transcribe_audio_file(
     logger.info(f"Starting transcription for: {audio_path} with preloaded Whisper model.")
 
     if not audio_path.exists():
-        logger.error(f"Error de transcripción: Archivo de audio no encontrado en {audio_path}")
-        # Spanish message to match legacy behavior/tests
-        raise TranscriptionError(f"Archivo de audio no encontrado: {audio_path}")
+        logger.error(f"Transcription error: Audio file not found at {audio_path}")
+        raise TranscriptionError(f"Audio file not found: {audio_path}")
 
     try:
         logger.info(f"Transcribing file: {audio_path} language='{language}'")
@@ -64,20 +63,18 @@ def transcribe_audio_file(
 
         transcribed_text = result.get("text", "").strip()
         if not transcribed_text:
-            # Spanish message to match tests
-            logger.warning("La transcripción ha devuelto un texto vacío.")
+            logger.warning("Transcription returned empty text.")
 
         detected_language = result.get("language")
 
         logger.info(
-            f"Transcripción completada. Idioma detectado: {detected_language}. Longitud: {len(transcribed_text)} chars."
+            f"Transcription complete. Detected language: {detected_language}. Length: {len(transcribed_text)} chars."
         )
         return TranscriptionResult(text=transcribed_text, language=detected_language)
 
     except Exception as e:
         logger.error(
-            f"Error inesperado durante transcripción de '{audio_path}': {e}",
+            f"Unexpected error during transcription of '{audio_path}': {e}",
             exc_info=True,
         )
-        # Spanish message for compatibility
-        raise TranscriptionError(f"Error inesperado en Whisper: {e}") from e
+        raise TranscriptionError(f"Unexpected Whisper error: {e}") from e
