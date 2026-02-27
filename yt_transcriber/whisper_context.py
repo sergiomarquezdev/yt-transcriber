@@ -8,37 +8,61 @@ from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# Try to import torch/whisper (may not be installed in all envs, handle gracefully)
 try:
-    import torch
-    import whisper
+    from faster_whisper import WhisperModel
 except ImportError:
-    torch = None
-    whisper = None
+    WhisperModel = None
+
+
+def _resolve_compute_type(device: str, compute_type: str) -> str:
+    """Auto-select optimal compute type based on device if set to 'default'."""
+    if compute_type != "default":
+        return compute_type
+    return "int8_float16" if device == "cuda" else "int8"
+
+
+def _resolve_device(device: str) -> str:
+    """Resolve 'auto' device to 'cuda' or 'cpu' by probing CTranslate2."""
+    if device != "auto":
+        return device
+    try:
+        import ctranslate2
+
+        supported = ctranslate2.get_supported_compute_types("cuda")
+        if supported:
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
 
 
 @contextmanager
 def whisper_model_context() -> Generator[Any]:
-    """
-    Context manager for loading and unloading the Whisper model.
-    Ensures that memory (VRAM/RAM) is released after use.
+    """Context manager for loading and unloading the faster-whisper model.
+
+    Ensures that memory is released after use.
 
     Yields:
-        model: The loaded Whisper model.
+        model: The loaded WhisperModel instance.
     """
-    if whisper is None or torch is None:
-        logger.critical("Dependencies 'torch' or 'whisper' not found.")
-        raise ImportError("Missing dependencies: torch, whisper")
+    if WhisperModel is None:
+        logger.critical("Dependency 'faster-whisper' not found.")
+        raise ImportError("Missing dependency: faster-whisper")
 
-    device = settings.WHISPER_DEVICE
-    if device == "cuda" and not torch.cuda.is_available():
-        logger.warning("CUDA requested but not available. Falling back to CPU.")
-        device = "cpu"
+    device = _resolve_device(settings.WHISPER_DEVICE)
+    compute_type = _resolve_compute_type(device, settings.WHISPER_COMPUTE_TYPE)
 
     model = None
     try:
-        logger.info(f"Loading Whisper model '{settings.WHISPER_MODEL_NAME}' on {device}...")
-        model = whisper.load_model(settings.WHISPER_MODEL_NAME, device=device)
+        logger.info(
+            f"Loading faster-whisper model '{settings.WHISPER_MODEL_NAME}' "
+            f"on {device} (compute_type={compute_type})..."
+        )
+        model = WhisperModel(
+            settings.WHISPER_MODEL_NAME,
+            device=device,
+            compute_type=compute_type,
+        )
         logger.info("Whisper model loaded successfully.")
         yield model
     except Exception as e:
@@ -49,11 +73,5 @@ def whisper_model_context() -> Generator[Any]:
             logger.info("Unloading Whisper model...")
             del model
 
-        # Force garbage collection
         gc.collect()
-
-        # Release CUDA memory if used
-        if device == "cuda" and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
         logger.info("Whisper model unloaded and memory released.")

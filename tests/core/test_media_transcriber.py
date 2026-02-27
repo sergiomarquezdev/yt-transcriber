@@ -1,6 +1,6 @@
 """Tests for core.media_transcriber module."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -9,6 +9,23 @@ from core.media_transcriber import (
     TranscriptionResult,
     transcribe_audio_file,
 )
+
+
+def _make_segments(*texts):
+    """Helper to create mock segments from text strings."""
+    segments = []
+    for text in texts:
+        seg = MagicMock()
+        seg.text = text
+        segments.append(seg)
+    return segments
+
+
+def _make_info(language="en"):
+    """Helper to create a mock transcription info object."""
+    info = MagicMock()
+    info.language = language
+    return info
 
 
 class TestTranscriptionResult:
@@ -54,7 +71,6 @@ class TestTranscribeAudioFile:
             language="es",
         )
 
-        # Verify language was passed to transcribe
         call_kwargs = mock_whisper_model.transcribe.call_args[1]
         assert call_kwargs.get("language") == "es"
 
@@ -70,10 +86,7 @@ class TestTranscribeAudioFile:
 
     def test_empty_transcription_handled(self, sample_audio_path, mock_whisper_model):
         """Test that empty transcription is handled."""
-        mock_whisper_model.transcribe.return_value = {
-            "text": "",
-            "language": "en",
-        }
+        mock_whisper_model.transcribe.return_value = (_make_segments(""), _make_info())
 
         result = transcribe_audio_file(
             audio_path=sample_audio_path,
@@ -84,10 +97,10 @@ class TestTranscribeAudioFile:
 
     def test_whitespace_trimmed(self, sample_audio_path, mock_whisper_model):
         """Test that whitespace is trimmed from transcription."""
-        mock_whisper_model.transcribe.return_value = {
-            "text": "  Some text with spaces  ",
-            "language": "en",
-        }
+        mock_whisper_model.transcribe.return_value = (
+            _make_segments("  Some text with spaces  "),
+            _make_info(),
+        )
 
         result = transcribe_audio_file(
             audio_path=sample_audio_path,
@@ -106,42 +119,12 @@ class TestTranscribeAudioFile:
                 model=mock_whisper_model,
             )
 
-    def test_fp16_enabled_on_cuda(self, sample_audio_path):
-        """Test that FP16 is enabled when model is on CUDA."""
-        mock_model = MagicMock()
-        mock_model.device = MagicMock()
-        mock_model.device.type = "cuda"
-        mock_model.transcribe.return_value = {"text": "Test", "language": "en"}
-
-        transcribe_audio_file(
-            audio_path=sample_audio_path,
-            model=mock_model,
-        )
-
-        call_kwargs = mock_model.transcribe.call_args[1]
-        assert call_kwargs.get("fp16") is True
-
-    def test_fp16_disabled_on_cpu(self, sample_audio_path):
-        """Test that FP16 is disabled when model is on CPU."""
-        mock_model = MagicMock()
-        mock_model.device = MagicMock()
-        mock_model.device.type = "cpu"
-        mock_model.transcribe.return_value = {"text": "Test", "language": "en"}
-
-        transcribe_audio_file(
-            audio_path=sample_audio_path,
-            model=mock_model,
-        )
-
-        call_kwargs = mock_model.transcribe.call_args[1]
-        assert call_kwargs.get("fp16") is False
-
     def test_detected_language_returned(self, sample_audio_path, mock_whisper_model):
         """Test that detected language is returned."""
-        mock_whisper_model.transcribe.return_value = {
-            "text": "Hola mundo",
-            "language": "es",
-        }
+        mock_whisper_model.transcribe.return_value = (
+            _make_segments("Hola mundo"),
+            _make_info("es"),
+        )
 
         result = transcribe_audio_file(
             audio_path=sample_audio_path,
@@ -158,7 +141,6 @@ class TestTranscribeAudioFile:
         )
 
         call_args = mock_whisper_model.transcribe.call_args[0]
-        # First positional argument should be string path
         assert isinstance(call_args[0], str)
 
     def test_long_audio_handled(self, temp_dir, mock_whisper_model):
@@ -166,12 +148,9 @@ class TestTranscribeAudioFile:
         audio_path = temp_dir / "long_audio.wav"
         audio_path.touch()
 
-        # Simulate long transcription
-        long_text = "Word " * 10000
-        mock_whisper_model.transcribe.return_value = {
-            "text": long_text,
-            "language": "en",
-        }
+        words = ["Word"] * 10000
+        segments = _make_segments(*words)
+        mock_whisper_model.transcribe.return_value = (segments, _make_info())
 
         result = transcribe_audio_file(
             audio_path=audio_path,
@@ -182,11 +161,10 @@ class TestTranscribeAudioFile:
 
     def test_special_characters_preserved(self, sample_audio_path, mock_whisper_model):
         """Test that special characters are preserved."""
-        special_text = "Hello! ¿Cómo estás? 日本語 🎉"
-        mock_whisper_model.transcribe.return_value = {
-            "text": special_text,
-            "language": "en",
-        }
+        mock_whisper_model.transcribe.return_value = (
+            _make_segments("Hello! ¿Cómo estás? 日本語"),
+            _make_info(),
+        )
 
         result = transcribe_audio_file(
             audio_path=sample_audio_path,
@@ -195,3 +173,45 @@ class TestTranscribeAudioFile:
 
         assert "¿Cómo" in result.text
         assert "日本語" in result.text
+
+    def test_beam_size_passed(self, sample_audio_path, mock_whisper_model):
+        """Test that beam_size from settings is passed to transcribe."""
+        with patch("core.media_transcriber.settings") as mock_settings:
+            mock_settings.WHISPER_BEAM_SIZE = 3
+            mock_settings.WHISPER_VAD_FILTER = True
+
+            transcribe_audio_file(
+                audio_path=sample_audio_path,
+                model=mock_whisper_model,
+            )
+
+            call_kwargs = mock_whisper_model.transcribe.call_args[1]
+            assert call_kwargs["beam_size"] == 3
+
+    def test_vad_filter_passed(self, sample_audio_path, mock_whisper_model):
+        """Test that vad_filter from settings is passed to transcribe."""
+        with patch("core.media_transcriber.settings") as mock_settings:
+            mock_settings.WHISPER_BEAM_SIZE = 5
+            mock_settings.WHISPER_VAD_FILTER = False
+
+            transcribe_audio_file(
+                audio_path=sample_audio_path,
+                model=mock_whisper_model,
+            )
+
+            call_kwargs = mock_whisper_model.transcribe.call_args[1]
+            assert call_kwargs["vad_filter"] is False
+
+    def test_multiple_segments_joined(self, sample_audio_path, mock_whisper_model):
+        """Test that multiple segments are joined with spaces."""
+        mock_whisper_model.transcribe.return_value = (
+            _make_segments("Hello world.", "How are you?", "Fine thanks."),
+            _make_info(),
+        )
+
+        result = transcribe_audio_file(
+            audio_path=sample_audio_path,
+            model=mock_whisper_model,
+        )
+
+        assert result.text == "Hello world. How are you? Fine thanks."

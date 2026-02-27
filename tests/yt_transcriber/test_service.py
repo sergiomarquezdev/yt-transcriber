@@ -29,12 +29,13 @@ class TestProcessTranscription:
 
     @pytest.fixture
     def mock_whisper_model(self):
-        """Create mock Whisper model."""
+        """Create mock faster-whisper model."""
         model = MagicMock()
-        model.transcribe.return_value = {
-            "text": "This is the transcribed text.",
-            "language": "en",
-        }
+        mock_segment = MagicMock()
+        mock_segment.text = "This is the transcribed text."
+        mock_info = MagicMock()
+        mock_info.language = "en"
+        model.transcribe.return_value = ([mock_segment], mock_info)
         return model
 
     # =========================================================================

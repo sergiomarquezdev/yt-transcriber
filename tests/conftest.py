@@ -68,14 +68,13 @@ def sample_video_path(temp_dir):
 
 @pytest.fixture
 def mock_whisper_model():
-    """Create a mock Whisper model."""
+    """Create a mock faster-whisper model."""
     model = MagicMock()
-    model.transcribe.return_value = {
-        "text": "This is a sample transcription.",
-        "language": "en",
-    }
-    model.device = MagicMock()
-    model.device.type = "cpu"
+    mock_segment = MagicMock()
+    mock_segment.text = "This is a sample transcription."
+    mock_info = MagicMock()
+    mock_info.language = "en"
+    model.transcribe.return_value = ([mock_segment], mock_info)
     return model
 
 

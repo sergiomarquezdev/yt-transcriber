@@ -29,13 +29,25 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(case_sensitive=False)
 
-    WHISPER_MODEL_NAME: Literal["tiny", "base", "small", "medium", "large"] = Field(
+    WHISPER_MODEL_NAME: str = Field(
         default="base",
-        description="Modelo de Whisper a utilizar",
+        description="Modelo de Whisper (base, small, medium, large-v3, distil-large-v3, etc.)",
     )
-    WHISPER_DEVICE: Literal["cpu", "cuda"] = Field(
-        default="cpu",
-        description="Dispositivo para ejecutar Whisper (cpu o cuda)",
+    WHISPER_DEVICE: Literal["cpu", "cuda", "auto"] = Field(
+        default="auto",
+        description="Dispositivo para ejecutar Whisper (auto detecta CUDA via CTranslate2)",
+    )
+    WHISPER_COMPUTE_TYPE: str = Field(
+        default="default",
+        description="Tipo de computo CTranslate2 (int8_float16 para GPU, int8 para CPU, default auto)",
+    )
+    WHISPER_BEAM_SIZE: int = Field(
+        default=5,
+        description="Beam search size (1=greedy, 5=default)",
+    )
+    WHISPER_VAD_FILTER: bool = Field(
+        default=True,
+        description="Silero VAD filter para saltar silencios automaticamente",
     )
     TEMP_DOWNLOAD_DIR: Path = Field(
         default=Path("temp_files/"),
