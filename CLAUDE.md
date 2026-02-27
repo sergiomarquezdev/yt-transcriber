@@ -1,96 +1,43 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+YouTube CLI transcriber + summarizer. Python 3.12+, faster-whisper (CTranslate2), multi-provider LLM (Gemini default). Two subcommands: `transcribe` (Whisper) and `playlist` (YouTube auto-subs, no GPU).
 
-## Build & Development Commands
+## Gotchas
 
-```bash
-# Install dependencies (editable mode)
-pip install -e .
+- **LLM dispatcher name is misleading**: `call_gemini_with_cache()` in `core/llm.py` routes to ALL providers (Gemini/OpenAI/Anthropic) despite the name. It's the single entry point for all LLM calls. Don't create separate call functions.
+- **Provider prefix convention**: model names use `"provider:model"` format (`"openai:gpt-4o"`, `"anthropic:claude-3-haiku"`). No prefix defaults to Gemini. Parsed in `call_gemini_with_cache`.
+- **Prompt versioning invalidates cache**: every caller passes a `prompt_version` string (from `settings.*_PROMPT_VERSION`). Bump the version when changing a prompt template, otherwise cached responses persist.
+- **Whisper context manager is mandatory**: always use `whisper_model_context()` from `whisper_context.py`. It handles CTranslate2 model load/unload + `gc.collect()`. Leaking models exhausts VRAM.
+- **Playlist mode skips Whisper entirely**: `command_playlist` downloads YouTube auto-generated subtitles via yt-dlp (`skip_download=True`), cleans SRT/VTT to plain text. No audio, no GPU, no model loading.
+- **`noplaylist: True` is hardcoded** in `download_and_extract_audio()`. Playlist support lives in separate functions (`extract_playlist_entries`, `download_auto_subtitles`), not in the existing download path.
 
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run the CLI
-yt-transcriber transcribe --url "https://www.youtube.com/watch?v=VIDEO_ID"
-yt-transcriber transcribe --url "URL" --summarize          # With AI summaries
-yt-transcriber transcribe --url "URL" --post-kits          # With LinkedIn/Twitter content
-
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/core/test_llm.py
-
-# Run specific test
-pytest tests/core/test_llm.py::test_function_name -v
-
-# Linting and type checking
-ruff check .
-ruff format .
-mypy .
-```
-
-## Architecture Overview
-
-### Two-Package Structure
-
-- **`core/`** - Shared infrastructure used across pipelines:
-  - `settings.py` - Pydantic-validated config from `.env` (AppSettings singleton)
-  - `llm.py` - Multi-provider LLM dispatch (Gemini/OpenAI/Anthropic) with caching. Exceptions: `LLMError` (base), `LLMProviderError` (API errors), `LLMConfigurationError` (missing keys)
-  - `cache.py` - LLM response cache (in-memory LRU with 1000 entry limit + disk persistence)
-  - `media_downloader.py` - yt-dlp wrapper for YouTube/Google Drive/local files
-  - `media_transcriber.py` - Whisper transcription wrapper
-  - `translator.py` - Summary translation (EN→ES)
-
-- **`yt_transcriber/`** - Main transcription pipeline:
-  - `cli.py` - argparse CLI entry point, delegates to service
-  - `service.py` - Orchestrates: Download → Transcribe → Summarize → Translate → Post Kits
-  - `summarizer.py` - Gemini-based video summarization with structured output
-  - `post_kits_generator.py` - LinkedIn posts + Twitter threads from summaries
-  - `whisper_context.py` - Context manager for Whisper model lifecycle (memory cleanup)
-
-### Key Data Flow
+## Error Hierarchy
 
 ```
-CLI/API → service.process_transcription()
-  1. download_and_extract_audio() → WAV file
-  2. transcribe_audio_file() → TranscriptionResult
-  3. generate_summary() → VideoSummary (if --summarize)
-  4. ScriptTranslator.translate_summary() → Spanish version
-  5. generate_post_kits() → PostKits (if --post-kits)
+LLMError (base) -> LLMProviderError (API errors) | LLMConfigurationError (missing keys)
+DownloadError          # core/media_downloader.py
+TranscriptionError     # core/media_transcriber.py
+TranslationError       # core/translator.py
+SummarizationError     # yt_transcriber/summarizer.py
+PostKitsError          # yt_transcriber/post_kits_generator.py
 ```
 
-### LLM Provider System
+Callers pass `error_class` to `call_gemini_with_cache()` so it raises domain-specific exceptions.
 
-Models support provider prefixes: `"gemini:model"`, `"openai:model"`, `"anthropic:model"`. Default is Gemini. Configuration in `settings.py`:
-- `SUMMARIZER_MODEL` - For video summarization (default: gemini-2.5-flash)
-- `TRANSLATOR_MODEL` - For translations (default: gemini-2.5-flash-lite)
-- `PRO_MODEL` - For premium tasks (default: gemini-2.5-pro)
+## Cross-File Workflows
 
-### Memory Management
+**Add a new LLM-powered feature:**
+1. Add prompt version setting in `core/settings.py` (`*_PROMPT_VERSION`)
+2. Create module with prompt template, call `call_gemini_with_cache()` from `core/llm.py`
+3. Wire into `service.py` or `cli.py` as needed
 
-Whisper models are loaded/unloaded per video via `whisper_model_context()` to prevent VRAM leaks. Temp files use `tempfile.TemporaryDirectory` for automatic cleanup.
+**Add a new CLI subcommand:**
+1. Add parser in `cli.py:main()` under `subparsers`
+2. Create `command_<name>(args)` handler in `cli.py`
+3. Add routing in the `if args.command ==` block at bottom of `main()`
 
-## Configuration
+## Testing
 
-Copy `.env.example` to `.env`. Key settings:
-- `GOOGLE_API_KEY` - Required for AI summaries
-- `WHISPER_MODEL_NAME` - tiny/base/small/medium/large (default: base)
-- `WHISPER_DEVICE` - cpu/cuda (auto-fallback if CUDA unavailable)
-- `LLM_CACHE_ENABLED` - Toggle LLM response caching (default: true)
-
-## Output Structure
-
-```
-output/
-├── transcripts/    # Raw transcription .txt files
-└── summaries/      # AI summaries and post kits .md files
-```
-
-## Testing Patterns
-
-- Tests mock external services (yt-dlp, Whisper, Gemini APIs)
-- Use `pytest-mock` for patching
-- Fixtures in `tests/conftest.py`
-- Test files mirror source structure: `tests/core/`, `tests/yt_transcriber/`
+- All external services are mocked (yt-dlp, faster-whisper, Gemini/OpenAI/Anthropic APIs)
+- `core/settings.py` loads `.env` at import time via `load_dotenv()`. Tests that need specific env vars must use `monkeypatch.setenv` BEFORE importing settings, or patch `settings` directly
+- `conftest.py` has `mock_whisper_model` fixture returning a MagicMock with `.transcribe()` -- use it instead of creating ad-hoc mocks
