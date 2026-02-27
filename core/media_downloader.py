@@ -18,6 +18,203 @@ from core import utils
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Playlist support
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PlaylistEntry:
+    """Metadata for a single video within a playlist."""
+
+    video_id: str
+    title: str
+    url: str
+
+
+def extract_playlist_entries(playlist_url: str) -> list[PlaylistEntry]:
+    """Extract video metadata from a YouTube playlist without downloading.
+
+    Uses yt-dlp ``extract_flat`` mode so only metadata is fetched (fast).
+
+    Args:
+        playlist_url: Full URL of a YouTube playlist.
+
+    Returns:
+        List of PlaylistEntry with video_id, title and url.
+
+    Raises:
+        DownloadError: If yt-dlp cannot extract the playlist.
+    """
+    opts: dict = {
+        "quiet": True,
+        "extract_flat": True,
+        "logger": logger,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(playlist_url, download=False)
+
+        if info is None:
+            raise DownloadError(f"Could not extract playlist info from: {playlist_url}")
+
+        entries_raw = info.get("entries") or []
+        entries: list[PlaylistEntry] = []
+        for entry in entries_raw:
+            vid = entry.get("id") or entry.get("url", "")
+            title = entry.get("title") or vid
+            url = entry.get("url") or f"https://www.youtube.com/watch?v={vid}"
+            if not url.startswith("http"):
+                url = f"https://www.youtube.com/watch?v={url}"
+            entries.append(PlaylistEntry(video_id=vid, title=title, url=url))
+
+        return entries
+
+    except yt_dlp.utils.DownloadError as e:
+        raise DownloadError(f"yt-dlp failed to extract playlist: {e}") from e
+    except DownloadError:
+        raise
+    except Exception as e:
+        raise DownloadError(f"Unexpected error extracting playlist: {e}") from e
+
+
+def _clean_srt_to_text(srt_content: str) -> str:
+    """Convert SRT/VTT subtitle content to clean plain text.
+
+    Removes:
+    - Numeric cue indices
+    - Timestamps (``00:00:00,000 --> 00:00:02,000`` and VTT variants)
+    - HTML-like tags (``<font>``, ``<b>``, etc.)
+    - VTT headers (``WEBVTT``, ``Kind:``, ``Language:``)
+    - Consecutive duplicate lines (YouTube auto-subs overlap)
+
+    Args:
+        srt_content: Raw SRT or VTT text.
+
+    Returns:
+        Cleaned plain text with unique lines joined by newlines.
+    """
+    lines = srt_content.splitlines()
+    cleaned: list[str] = []
+    prev_line = ""
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        # Skip empty lines
+        if not line:
+            continue
+
+        # Skip VTT headers
+        if line.startswith("WEBVTT") or line.startswith("Kind:") or line.startswith("Language:"):
+            continue
+
+        # Skip numeric cue indices (standalone numbers)
+        if line.isdigit():
+            continue
+
+        # Skip timestamp lines (SRT and VTT formats)
+        if re.match(r"\d{2}:\d{2}[:\.]", line):
+            continue
+
+        # Strip HTML-like tags
+        line = re.sub(r"<[^>]+>", "", line)
+        line = line.strip()
+
+        if not line:
+            continue
+
+        # Deduplicate consecutive identical lines
+        if line == prev_line:
+            continue
+
+        cleaned.append(line)
+        prev_line = line
+
+    return "\n".join(cleaned)
+
+
+def download_auto_subtitles(
+    video_url: str,
+    output_dir: Path,
+    lang: str = "es",
+) -> Path | None:
+    """Download auto-generated subtitles for a video and save as clean text.
+
+    Uses yt-dlp with ``skip_download=True`` so no audio/video is fetched.
+    Downloads auto-subs in the requested language, cleans timestamps and
+    duplicates, and writes a ``.txt`` file.
+
+    Args:
+        video_url: YouTube video URL.
+        output_dir: Directory to write the resulting ``.txt`` file.
+        lang: Subtitle language code (default ``"es"``).
+
+    Returns:
+        Path to the saved ``.txt`` file, or ``None`` if no subtitles found.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    opts: dict = {
+        "quiet": True,
+        "skip_download": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": [lang],
+        "subtitlesformat": "srt",
+        "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+        "noplaylist": True,
+        "logger": logger,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+
+        if info is None:
+            logger.warning(f"No info returned for {video_url}")
+            return None
+
+        video_id = info.get("id", "unknown")
+
+        # yt-dlp writes subs as <id>.<lang>.srt (or .vtt)
+        possible_exts = ["srt", "vtt"]
+        sub_path: Path | None = None
+        for ext in possible_exts:
+            candidate = output_dir / f"{video_id}.{lang}.{ext}"
+            if candidate.exists():
+                sub_path = candidate
+                break
+
+        if sub_path is None:
+            logger.warning(f"No auto-subs ({lang}) found for {video_url}")
+            return None
+
+        raw_content = sub_path.read_text(encoding="utf-8")
+        clean_text = _clean_srt_to_text(raw_content)
+
+        if not clean_text.strip():
+            logger.warning(f"Subtitles were empty after cleaning for {video_url}")
+            sub_path.unlink(missing_ok=True)
+            return None
+
+        txt_path = output_dir / f"{video_id}.txt"
+        txt_path.write_text(clean_text, encoding="utf-8")
+
+        # Remove raw subtitle file
+        sub_path.unlink(missing_ok=True)
+
+        logger.info(f"Auto-subs saved to: {txt_path}")
+        return txt_path
+
+    except yt_dlp.utils.DownloadError as e:
+        logger.warning(f"yt-dlp error downloading subs for {video_url}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error downloading subs for {video_url}: {e}")
+        return None
+
+
 def is_google_drive_url(url: str) -> bool:
     """Check if a URL is a Google Drive link.
 

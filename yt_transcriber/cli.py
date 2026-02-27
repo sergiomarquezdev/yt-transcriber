@@ -5,12 +5,9 @@ import logging
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any
 
 from core.settings import settings
-
-if TYPE_CHECKING:
-    import whisper
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +52,7 @@ def get_youtube_title(youtube_url: str) -> str:
 def process_transcription(
     youtube_url: str,
     title: str,
-    model: "whisper.Whisper",
+    model: Any,
     language: str | None = None,
     ffmpeg_location: str | None = None,
     generate_post_kits: bool = False,
@@ -251,6 +248,106 @@ def run_transcribe_command(
         return None, None, None, None
 
 
+def command_playlist(args):
+    """Command handler for downloading auto-subs from a YouTube playlist."""
+    setup_logging()
+
+    import core.media_downloader as _dl
+    from core.settings import settings as app_settings
+
+    # 1) Extract playlist entries
+    logger.info(f"Extracting playlist entries from: {args.url}")
+    try:
+        entries = _dl.extract_playlist_entries(args.url)
+    except _dl.DownloadError as e:
+        logger.error(f"Failed to extract playlist: {e}")
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not entries:
+        logger.warning("Playlist is empty or could not be read.")
+        print("No videos found in the playlist.")
+        sys.exit(0)
+
+    # 2) Slice to last N if --limit is set
+    if args.limit and args.limit > 0:
+        entries = entries[-args.limit :]
+
+    total = len(entries)
+    logger.info(f"Processing {total} video(s) from playlist")
+
+    # --post-kits implies --summarize
+    generate_summary = getattr(args, "summarize", False) or getattr(args, "post_kits", False)
+    generate_post_kits_flag = getattr(args, "post_kits", False)
+
+    output_dir = app_settings.OUTPUT_TRANSCRIPTS_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    completed = 0
+    failed = 0
+
+    for i, entry in enumerate(entries, 1):
+        logger.info(f"[{i}/{total}] {entry.title}")
+        print(f"\n[{i}/{total}] {entry.title}")
+
+        try:
+            txt_path = _dl.download_auto_subtitles(
+                video_url=entry.url,
+                output_dir=output_dir,
+                lang=args.language,
+            )
+
+            if txt_path is None:
+                logger.warning(f"No subtitles found for: {entry.title}")
+                print(f"  -> No auto-subs ({args.language}) available, skipping.")
+                failed += 1
+                continue
+
+            print(f"  -> Transcript saved: {txt_path}")
+
+            # Optional: generate summaries
+            if generate_summary:
+                from yt_transcriber.service import generate_summary_outputs
+
+                transcript_text = txt_path.read_text(encoding="utf-8")
+                from yt_transcriber.utils import normalize_title_for_filename
+
+                normalized = normalize_title_for_filename(entry.title)
+                output_base = f"{normalized}_vid_{entry.video_id}"
+
+                try:
+                    s_en, s_es, pk = generate_summary_outputs(
+                        transcript_text=transcript_text,
+                        video_title=entry.title,
+                        video_url=entry.url,
+                        video_id=entry.video_id,
+                        output_filename_base=output_base,
+                        generate_post_kits=generate_post_kits_flag,
+                        is_local_file=False,
+                    )
+                    if s_en:
+                        print(f"  -> Summary (EN): {s_en}")
+                    if s_es:
+                        print(f"  -> Summary (ES): {s_es}")
+                    if pk:
+                        print(f"  -> Post Kits: {pk}")
+                except Exception as e:
+                    logger.warning(f"Summary generation failed for {entry.title}: {e}")
+                    print(f"  -> Summary failed: {e}", file=sys.stderr)
+
+            completed += 1
+
+        except Exception as e:
+            logger.error(f"Error processing {entry.title}: {e}")
+            print(f"  -> Error: {e}", file=sys.stderr)
+            failed += 1
+            continue
+
+    # Final summary
+    print(f"\nCompleted: {completed}/{total}, Failed: {failed}")
+    logger.info(f"Playlist batch done. Completed: {completed}/{total}, Failed: {failed}")
+
+
 def main():
     """Punto de entrada principal para el CLI."""
     parser = argparse.ArgumentParser(
@@ -296,10 +393,49 @@ def main():
         help="Generar LinkedIn post y Twitter thread (implica --summarize).",
     )
 
+    # Subcommand: playlist
+    playlist_parser = subparsers.add_parser(
+        "playlist",
+        help="Descarga auto-subs de una playlist de YouTube en batch",
+    )
+    playlist_parser.add_argument(
+        "-u",
+        "--url",
+        required=True,
+        type=str,
+        help="URL de la playlist de YouTube.",
+    )
+    playlist_parser.add_argument(
+        "-n",
+        "--limit",
+        type=int,
+        default=None,
+        help="Ultimos N videos de la playlist (default: todos).",
+    )
+    playlist_parser.add_argument(
+        "-l",
+        "--language",
+        type=str,
+        default="es",
+        help="Idioma de los subtitulos automaticos (default: es).",
+    )
+    playlist_parser.add_argument(
+        "--summarize",
+        action="store_true",
+        help="Generar resumenes EN + ES para cada video.",
+    )
+    playlist_parser.add_argument(
+        "--post-kits",
+        action="store_true",
+        help="Generar LinkedIn post y Twitter thread (implica --summarize).",
+    )
+
     args = parser.parse_args()
 
     if args.command == "transcribe":
         command_transcribe(args)
+    elif args.command == "playlist":
+        command_playlist(args)
     else:
         parser.print_help()
         sys.exit(1)

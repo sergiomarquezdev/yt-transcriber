@@ -8,9 +8,12 @@ import yt_dlp
 from core.media_downloader import (
     DownloadError,
     DownloadResult,
+    _clean_srt_to_text,
     download_and_extract_audio,
+    download_auto_subtitles,
     extract_audio_from_local_file,
     extract_drive_file_id,
+    extract_playlist_entries,
     is_google_drive_url,
 )
 
@@ -353,3 +356,214 @@ class TestExtractAudioFromLocalFile:
 
                 # video_id should be normalized filename
                 assert "My" in result.video_id or "Test" in result.video_id
+
+
+# =========================================================================
+# Playlist support
+# =========================================================================
+
+
+class TestExtractPlaylistEntries:
+    """Tests for extract_playlist_entries function."""
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_extract_playlist_entries(self, mock_yt_dlp):
+        """Test successful extraction of playlist entries."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {"id": "abc123", "title": "Video 1", "url": "abc123"},
+                {
+                    "id": "def456",
+                    "title": "Video 2",
+                    "url": "https://www.youtube.com/watch?v=def456",
+                },
+            ]
+        }
+
+        entries = extract_playlist_entries("https://www.youtube.com/playlist?list=PLtest")
+
+        assert len(entries) == 2
+        assert entries[0].video_id == "abc123"
+        assert entries[0].title == "Video 1"
+        assert "abc123" in entries[0].url
+        assert entries[1].video_id == "def456"
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_extract_playlist_entries_empty(self, mock_yt_dlp):
+        """Test empty playlist returns empty list."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = {"entries": []}
+
+        entries = extract_playlist_entries("https://www.youtube.com/playlist?list=PLempty")
+
+        assert entries == []
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_extract_playlist_entries_none_info(self, mock_yt_dlp):
+        """Test None info raises DownloadError."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = None
+
+        with pytest.raises(DownloadError, match="Could not extract playlist info"):
+            extract_playlist_entries("https://www.youtube.com/playlist?list=PLbad")
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_extract_playlist_entries_yt_dlp_error(self, mock_yt_dlp):
+        """Test yt-dlp error is wrapped in DownloadError."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.side_effect = yt_dlp.utils.DownloadError("network error")
+
+        with pytest.raises(DownloadError, match="yt-dlp failed to extract playlist"):
+            extract_playlist_entries("https://www.youtube.com/playlist?list=PLfail")
+
+
+class TestCleanSrtToText:
+    """Tests for _clean_srt_to_text helper."""
+
+    def test_removes_timestamps_and_indices(self):
+        """Test SRT timestamps and cue indices are removed."""
+        srt = (
+            "1\n"
+            "00:00:00,000 --> 00:00:02,000\n"
+            "Hello world\n"
+            "\n"
+            "2\n"
+            "00:00:02,000 --> 00:00:04,000\n"
+            "Second line\n"
+        )
+        result = _clean_srt_to_text(srt)
+        assert "Hello world" in result
+        assert "Second line" in result
+        assert "-->" not in result
+        assert "00:00" not in result
+
+    def test_removes_vtt_headers(self):
+        """Test VTT-specific headers are stripped."""
+        vtt = "WEBVTT\nKind: captions\nLanguage: es\n\n00:00:00.000 --> 00:00:02.000\nHola mundo\n"
+        result = _clean_srt_to_text(vtt)
+        assert result.strip() == "Hola mundo"
+
+    def test_deduplicates_consecutive_lines(self):
+        """Test consecutive duplicate lines are merged."""
+        srt = (
+            "1\n"
+            "00:00:00,000 --> 00:00:02,000\n"
+            "Hello\n"
+            "\n"
+            "2\n"
+            "00:00:01,000 --> 00:00:03,000\n"
+            "Hello\n"
+            "\n"
+            "3\n"
+            "00:00:02,000 --> 00:00:04,000\n"
+            "World\n"
+        )
+        result = _clean_srt_to_text(srt)
+        assert result.count("Hello") == 1
+        assert "World" in result
+
+    def test_strips_html_tags(self):
+        """Test HTML tags are removed from subtitle text."""
+        srt = "1\n00:00:00,000 --> 00:00:02,000\n<font color='white'>Styled text</font>\n"
+        result = _clean_srt_to_text(srt)
+        assert result.strip() == "Styled text"
+        assert "<font" not in result
+
+    def test_empty_input(self):
+        """Test empty string returns empty string."""
+        assert _clean_srt_to_text("") == ""
+
+
+class TestDownloadAutoSubtitles:
+    """Tests for download_auto_subtitles function."""
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_download_auto_subtitles_success(self, mock_yt_dlp, temp_dir):
+        """Test successful subtitle download and cleaning."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = {"id": "vid123"}
+
+        # Simulate yt-dlp writing an SRT file
+        srt_path = temp_dir / "vid123.es.srt"
+        srt_path.write_text(
+            "1\n00:00:00,000 --> 00:00:02,000\nHola mundo\n\n"
+            "2\n00:00:02,000 --> 00:00:04,000\nSegunda linea\n",
+            encoding="utf-8",
+        )
+
+        result = download_auto_subtitles(
+            video_url="https://www.youtube.com/watch?v=vid123",
+            output_dir=temp_dir,
+            lang="es",
+        )
+
+        assert result is not None
+        assert result.name == "vid123.txt"
+        content = result.read_text(encoding="utf-8")
+        assert "Hola mundo" in content
+        assert "Segunda linea" in content
+        assert "-->" not in content
+        # Raw SRT should be cleaned up
+        assert not srt_path.exists()
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_download_auto_subtitles_no_subs(self, mock_yt_dlp, temp_dir):
+        """Test returns None when no subtitles are available."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = {"id": "nosubs"}
+
+        # No SRT file created - simulates video without subs
+
+        result = download_auto_subtitles(
+            video_url="https://www.youtube.com/watch?v=nosubs",
+            output_dir=temp_dir,
+            lang="es",
+        )
+
+        assert result is None
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_download_auto_subtitles_yt_dlp_error(self, mock_yt_dlp, temp_dir):
+        """Test yt-dlp error returns None gracefully."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.side_effect = yt_dlp.utils.DownloadError("private video")
+
+        result = download_auto_subtitles(
+            video_url="https://www.youtube.com/watch?v=private",
+            output_dir=temp_dir,
+            lang="es",
+        )
+
+        assert result is None
+
+    @patch("core.media_downloader.yt_dlp.YoutubeDL")
+    def test_download_auto_subtitles_vtt_format(self, mock_yt_dlp, temp_dir):
+        """Test VTT subtitle format is also handled."""
+        mock_ydl = MagicMock()
+        mock_yt_dlp.return_value.__enter__.return_value = mock_ydl
+        mock_ydl.extract_info.return_value = {"id": "vttvid"}
+
+        # Simulate VTT file
+        vtt_path = temp_dir / "vttvid.en.vtt"
+        vtt_path.write_text(
+            "WEBVTT\nKind: captions\nLanguage: en\n\n00:00:00.000 --> 00:00:02.000\nHello world\n",
+            encoding="utf-8",
+        )
+
+        result = download_auto_subtitles(
+            video_url="https://www.youtube.com/watch?v=vttvid",
+            output_dir=temp_dir,
+            lang="en",
+        )
+
+        assert result is not None
+        content = result.read_text(encoding="utf-8")
+        assert "Hello world" in content

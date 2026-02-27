@@ -12,7 +12,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # Prefer core media for new code paths
 from core.llm import is_model_configured
@@ -28,14 +28,12 @@ from yt_transcriber import utils
 from yt_transcriber.summarizer import generate_summary as create_summary
 
 if TYPE_CHECKING:
-    import whisper
-
     from core.models import VideoSummary
 
 logger = logging.getLogger(__name__)
 
 
-def _generate_summary_outputs(
+def generate_summary_outputs(
     transcript_text: str,
     video_title: str,
     video_url: str,
@@ -140,7 +138,7 @@ def _generate_summary_outputs(
 def process_transcription(
     youtube_url: str,
     title: str,
-    model: "whisper.Whisper",
+    model: Any,
     language: str | None = None,
     ffmpeg_location: str | None = None,
     generate_post_kits: bool = False,
@@ -255,7 +253,7 @@ def process_transcription(
                         # Generate summaries if requested
                         if generate_summary:
                             summary_path_en, summary_path_es, post_kits_path = (
-                                _generate_summary_outputs(
+                                generate_summary_outputs(
                                     transcript_text=transcript_text,
                                     video_title=title,
                                     video_url=youtube_url,
@@ -353,7 +351,7 @@ def process_transcription(
 
             logger.info("Step 4: Generating AI summary...")
             try:
-                summary_path_en, summary_path_es, post_kits_path = _generate_summary_outputs(
+                summary_path_en, summary_path_es, post_kits_path = generate_summary_outputs(
                     transcript_text=transcription_result.text,
                     video_title=title,
                     video_url=youtube_url,
