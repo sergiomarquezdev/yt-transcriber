@@ -193,12 +193,11 @@ class TestGenerateLinkedInPost:
 
     def test_calls_llm_api(self, sample_video_summary, sample_linkedin_response):
         """Test that LLM API is called."""
-        with patch("yt_transcriber.post_kits_generator.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.post_kits_generator.call_llm") as mock_call:
             mock_call.return_value = sample_linkedin_response
 
             with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.POST_KITS_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
                 mock_settings.POST_KITS_LINKEDIN_MIN_INSIGHTS = 4
                 mock_settings.POST_KITS_LINKEDIN_MAX_INSIGHTS = 8
 
@@ -209,12 +208,11 @@ class TestGenerateLinkedInPost:
 
     def test_api_error_raises_postkits_error(self, sample_video_summary):
         """Test that API errors are wrapped."""
-        with patch("yt_transcriber.post_kits_generator.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.post_kits_generator.call_llm") as mock_call:
             mock_call.side_effect = PostKitsError("API failed")
 
             with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.POST_KITS_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 with pytest.raises(PostKitsError):
                     _generate_linkedin_post(sample_video_summary, "Test")
@@ -225,12 +223,11 @@ class TestGenerateTwitterThread:
 
     def test_calls_llm_api(self, sample_video_summary, sample_twitter_response):
         """Test that LLM API is called."""
-        with patch("yt_transcriber.post_kits_generator.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.post_kits_generator.call_llm") as mock_call:
             mock_call.return_value = sample_twitter_response
 
             with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.POST_KITS_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 thread = _generate_twitter_thread(sample_video_summary, "Test Video")
 
@@ -249,14 +246,13 @@ class TestTranslateLinkedInPost:
 
             original = _parse_linkedin_response(sample_linkedin_response)
 
-            with patch("yt_transcriber.post_kits_generator.call_gemini_with_cache") as mock_call:
+            with patch("yt_transcriber.post_kits_generator.call_llm") as mock_call:
                 # Return Spanish-like response
                 mock_call.return_value = sample_linkedin_response.replace(
                     "Python testing", "pruebas en Python"
                 )
 
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.POST_KITS_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 translated = _translate_linkedin_post(original, "Test Video")
 
@@ -270,11 +266,10 @@ class TestTranslateLinkedInPost:
 
             original = _parse_linkedin_response(sample_linkedin_response)
 
-            with patch("yt_transcriber.post_kits_generator.call_gemini_with_cache") as mock_call:
+            with patch("yt_transcriber.post_kits_generator.call_llm") as mock_call:
                 mock_call.side_effect = PostKitsError("Translation failed")
 
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.POST_KITS_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 with pytest.raises(PostKitsError):
                     _translate_linkedin_post(original, "Test Video")
@@ -287,12 +282,11 @@ class TestTranslateTwitterThread:
         """Test that thread is translated."""
         original = _parse_twitter_response(sample_twitter_response)
 
-        with patch("yt_transcriber.post_kits_generator.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.post_kits_generator.call_llm") as mock_call:
             mock_call.return_value = sample_twitter_response
 
             with patch("yt_transcriber.post_kits_generator.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.POST_KITS_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 translated = _translate_twitter_thread(original, "Test Video")
 

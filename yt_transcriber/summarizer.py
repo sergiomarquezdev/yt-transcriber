@@ -1,4 +1,4 @@
-"""Video summarization using Gemini AI.
+"""Video summarization using Claude CLI.
 
 This module provides AI-powered video summarization functionality,
 generating executive summaries with key points, timestamps, and action items.
@@ -8,7 +8,7 @@ import logging
 import re
 from datetime import datetime
 
-from core.llm import call_gemini_with_cache
+from core.llm import call_llm
 from core.models import TimestampedSection, VideoSummary
 from core.settings import settings
 
@@ -30,7 +30,7 @@ def generate_summary(
     video_url: str,
     video_id: str,
 ) -> VideoSummary:
-    """Generate comprehensive video summary using Gemini AI.
+    """Generate comprehensive video summary using Claude CLI.
 
     Args:
         transcript: Full video transcript text
@@ -42,7 +42,7 @@ def generate_summary(
         VideoSummary object with all fields populated
 
     Raises:
-        SummarizationError: If Gemini API fails or response invalid
+        SummarizationError: If Claude CLI fails or response invalid
     """
     logger.info(f"Generating summary for video: {video_title}")
 
@@ -63,22 +63,8 @@ def generate_summary(
         language=language,
     )
 
-    # 4. Call Gemini API with caching
-    inputs = {
-        "transcript": transcript[:1000],  # First 1000 chars for uniqueness
-        "video_title": video_title,
-        "language": language,
-        "task": "video_summarization",
-    }
-
-    summary_text = call_gemini_with_cache(
-        prompt=prompt,
-        model_name=settings.SUMMARIZER_MODEL,
-        prompt_version=settings.SUMMARIZER_PROMPT_VERSION,
-        inputs=inputs,
-        temperature=0.7,
-        error_class=SummarizationError,
-    )
+    # 4. Call Claude CLI
+    summary_text = call_llm(prompt=prompt, model=settings.SUMMARIZER_MODEL)
 
     logger.info(f"Summary response received ({len(summary_text)} chars)")
 
@@ -98,7 +84,7 @@ def generate_summary(
 
     except Exception as e:
         logger.error(f"Failed to parse summary: {e}", exc_info=True)
-        raise SummarizationError(f"Failed to parse Gemini response: {e}") from e
+        raise SummarizationError(f"Failed to parse LLM response: {e}") from e
 
 
 def _detect_language(transcript: str) -> str:
@@ -167,7 +153,7 @@ def _build_prompt(
     duration_minutes: float,
     language: str,
 ) -> str:
-    """Build Gemini prompt based on detected language."""
+    """Build prompt based on detected language."""
     if language == "es":
         return SUMMARY_PROMPT_ES.format(
             video_title=video_title,
@@ -193,7 +179,7 @@ def _parse_summary_response(
     duration_minutes: float,
     language: str,
 ) -> VideoSummary:
-    """Parse Gemini markdown response into VideoSummary object."""
+    """Parse LLM markdown response into VideoSummary object."""
     # Extract sections using regex
     exec_summary = _extract_section(
         summary_text, r"## 🎯 Resumen Ejecutivo|## 🎯 Executive Summary"

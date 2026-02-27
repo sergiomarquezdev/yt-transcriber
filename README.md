@@ -10,7 +10,7 @@
 
 - **CUDA-accelerated transcription** with OpenAI Whisper
 - **Multi-language support** with auto-detection
-- **AI-powered summaries** (EN + ES) with Gemini 2.5 Flash:
+- **AI-powered summaries** (EN + ES) via Claude CLI:
   - Executive summary (2-3 sentences)
   - Key points (5-10 bullets)
   - Smart timestamps (inferred from content)
@@ -19,8 +19,6 @@
 - **Multiple input sources**: YouTube, Google Drive, local files
 - **Performance optimized**:
   - Automatic memory cleanup (no memory leaks)
-  - In-memory LRU cache for faster repeated operations
-  - Thread-safe concurrent processing
   - Auto temp file cleanup
 
 ## Quick Start
@@ -40,7 +38,7 @@ pip install -e .
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your GOOGLE_API_KEY
+# Ensure `claude` CLI is in PATH (requires Claude Max/Pro subscription)
 
 # Transcribe your first video
 yt-transcriber transcribe --url "https://www.youtube.com/watch?v=VIDEO_ID"
@@ -51,6 +49,7 @@ yt-transcriber transcribe --url "https://www.youtube.com/watch?v=VIDEO_ID"
 - **Python 3.12+**
 - **FFmpeg** - Required for audio processing
 - **CUDA 12.8** (Optional) - For GPU acceleration
+- **Claude CLI** (Optional) - Required for AI summaries, translations, and post kits. Install from [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and ensure `claude` is in your PATH with an active subscription.
 
 ### FFmpeg Installation
 
@@ -135,8 +134,11 @@ Create `.env` from template:
 WHISPER_MODEL_NAME=base    # tiny, base, small, medium, large
 WHISPER_DEVICE=cuda        # cuda or cpu
 
-# AI Summarizer (required for summaries)
-GOOGLE_API_KEY=your_key    # Get from https://aistudio.google.com/apikey
+# Claude CLI (required for summaries, translations, post kits)
+# Ensure `claude` is in PATH with active subscription (Max/Pro)
+# CLAUDE_CLI_PATH=claude
+# CLAUDE_CLI_TIMEOUT=180
+# DEFAULT_LLM_MODEL=sonnet
 
 # Directories
 TEMP_DOWNLOAD_DIR=temp_files/
@@ -185,21 +187,14 @@ The application includes automatic optimizations for production use:
 
 **Memory Management:**
 - Whisper model auto-loads/unloads per video (prevents memory leaks)
-- In-memory LRU cache reduces disk I/O by 100-1000x for repeated operations
 - Automatic garbage collection after each transcription
 
 **Resource Cleanup:**
 - Temp files auto-deleted after processing (even on errors)
-- Cache auto-prunes expired entries (5% probability per write)
 - No manual cleanup needed
 
-**Concurrency:**
-- Thread-safe rate limiting for LLM API calls
-- Multiple videos can be processed concurrently without conflicts
-- FFmpeg timeout protection (5min) prevents hung processes
-
-**Batch Processing:**
-For processing many videos, memory and disk usage remain constant instead of growing unbounded.
+**FFmpeg:**
+- Timeout protection (5min) prevents hung processes
 
 ## Troubleshooting
 
@@ -232,7 +227,7 @@ MIT License - see [LICENSE](LICENSE)
 
 - [OpenAI Whisper](https://github.com/openai/whisper) - AI transcription
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Video downloading
-- [Google Gemini](https://ai.google.dev/) - AI summarization
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) - AI summarization & translation
 
 ---
 

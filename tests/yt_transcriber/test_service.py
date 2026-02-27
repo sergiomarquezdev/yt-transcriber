@@ -19,7 +19,7 @@ class TestProcessTranscription:
             mock_settings.SUMMARY_OUTPUT_DIR = temp_dir / "summaries"
             mock_settings.TRANSCRIPT_CACHE_DIR = temp_dir / "cache"
             mock_settings.TRANSCRIPT_CACHE_ENABLED = False
-            mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
+            mock_settings.SUMMARIZER_MODEL = "sonnet"
 
             (temp_dir / "temp").mkdir(exist_ok=True)
             (temp_dir / "transcripts").mkdir(exist_ok=True)

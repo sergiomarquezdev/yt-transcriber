@@ -7,7 +7,7 @@ ready content for LinkedIn and Twitter/X.
 import logging
 import re
 
-from core.llm import call_gemini_with_cache
+from core.llm import call_llm
 from core.models import VideoSummary
 from core.settings import settings
 from yt_transcriber.models import LinkedInPost, PostKits, TwitterThread
@@ -85,7 +85,7 @@ def _generate_linkedin_post(
     summary: VideoSummary,
     video_title: str,
 ) -> LinkedInPost:
-    """Generate LinkedIn post using Gemini API with caching.
+    """Generate LinkedIn post using Claude CLI.
 
     Args:
         summary: VideoSummary object
@@ -97,22 +97,9 @@ def _generate_linkedin_post(
     logger.info("Generating LinkedIn post...")
 
     # Build prompt
-    prompt = _build_linkedin_prompt(summary, video_title)  # Call Gemini with caching
-    # Cache key based on: model + prompt_version + (summary + title)
-    inputs = {
-        "executive_summary": summary.executive_summary[:500],  # First 500 chars for uniqueness
-        "video_title": video_title,
-        "task": "linkedin_post_generation",
-    }
+    prompt = _build_linkedin_prompt(summary, video_title)
 
-    linkedin_text = call_gemini_with_cache(
-        prompt=prompt,
-        model_name=settings.SUMMARIZER_MODEL,
-        prompt_version=settings.POST_KITS_PROMPT_VERSION,
-        inputs=inputs,
-        temperature=0.7,
-        error_class=PostKitsError,
-    )
+    linkedin_text = call_llm(prompt=prompt, model=settings.SUMMARIZER_MODEL)
 
     logger.debug(f"LinkedIn response: {len(linkedin_text)} chars")
 
@@ -126,7 +113,7 @@ def _generate_twitter_thread(
     summary: VideoSummary,
     video_title: str,
 ) -> TwitterThread:
-    """Generate Twitter thread using Gemini API with caching.
+    """Generate Twitter thread using Claude CLI.
 
     Args:
         summary: VideoSummary object
@@ -138,21 +125,9 @@ def _generate_twitter_thread(
     logger.info("Generating Twitter thread...")
 
     # Build prompt
-    prompt = _build_twitter_prompt(summary, video_title)  # Call Gemini with caching
-    inputs = {
-        "executive_summary": summary.executive_summary[:500],
-        "video_title": video_title,
-        "task": "twitter_thread_generation",
-    }
+    prompt = _build_twitter_prompt(summary, video_title)
 
-    twitter_text = call_gemini_with_cache(
-        prompt=prompt,
-        model_name=settings.SUMMARIZER_MODEL,
-        prompt_version=settings.POST_KITS_PROMPT_VERSION,
-        inputs=inputs,
-        temperature=0.7,
-        error_class=PostKitsError,
-    )
+    twitter_text = call_llm(prompt=prompt, model=settings.SUMMARIZER_MODEL)
 
     logger.debug(f"Twitter response: {len(twitter_text)} chars")
 
@@ -163,7 +138,7 @@ def _generate_twitter_thread(
 
 
 def _build_linkedin_prompt(summary: VideoSummary, video_title: str) -> str:
-    """Build Gemini prompt for LinkedIn post generation."""
+    """Build prompt for LinkedIn post generation."""
 
     # Extract key info from summary
     executive_summary = summary.executive_summary
@@ -249,7 +224,7 @@ Now generate the LinkedIn post using the EXACT format above:"""
 
 
 def _build_twitter_prompt(summary: VideoSummary, video_title: str) -> str:
-    """Build Gemini prompt for Twitter thread generation."""
+    """Build prompt for Twitter thread generation."""
 
     executive_summary = summary.executive_summary
     key_points = "\n".join(f"- {point}" for point in summary.key_points)
@@ -334,10 +309,10 @@ Now generate the Twitter thread using the EXACT format above:"""
 
 
 def _parse_linkedin_response(response_text: str) -> LinkedInPost:
-    """Parse Gemini response into LinkedInPost object.
+    """Parse LLM response into LinkedInPost object.
 
     Args:
-        response_text: Raw text from Gemini API
+        response_text: Raw text from LLM
 
     Returns:
         LinkedInPost object
@@ -423,10 +398,10 @@ def _parse_linkedin_response(response_text: str) -> LinkedInPost:
 
 
 def _parse_twitter_response(response_text: str) -> TwitterThread:
-    """Parse Gemini response into TwitterThread object.
+    """Parse LLM response into TwitterThread object.
 
     Args:
-        response_text: Raw text from Gemini API
+        response_text: Raw text from LLM
 
     Returns:
         TwitterThread object
@@ -597,21 +572,9 @@ CTA: [Spanish translation - natural closing, light question or reflection]
 
 Tags: [Spanish hashtags separated by commas]
 
-CRITICAL: Preserve professional-yet-approachable tone. Avoid sounding like press release OR overly casual influencer."""  # Call Gemini with caching
-    inputs = {
-        "linkedin_hook": post_en.hook,
-        "linkedin_intro": post_en.intro,
-        "video_title": video_title,
-        "task": "linkedin_translation_to_spanish",
-    }
+CRITICAL: Preserve professional-yet-approachable tone. Avoid sounding like press release OR overly casual influencer."""
 
-    linkedin_text = call_gemini_with_cache(
-        prompt=prompt,
-        model_name=settings.SUMMARIZER_MODEL,
-        prompt_version=settings.POST_KITS_PROMPT_VERSION,
-        inputs=inputs,
-        temperature=0.5,  # Lower temperature for translations
-    )
+    linkedin_text = call_llm(prompt=prompt, model=settings.SUMMARIZER_MODEL)
 
     logger.debug(f"LinkedIn translation response: {len(linkedin_text)} chars")
 
@@ -709,20 +672,9 @@ Hashtags: {", ".join("#" + tag for tag in thread_en.hashtags)}
 
 Hashtags: [Spanish hashtags separated by commas]
 
-CRITICAL: Maintain professional tech community tone. Avoid sounding overly hyped OR too formal."""  # Call Gemini with caching
-    inputs = {
-        "twitter_tweets": numbered_tweets[:500],  # First 500 chars for uniqueness
-        "video_title": video_title,
-        "task": "twitter_translation_to_spanish",
-    }
+CRITICAL: Maintain professional tech community tone. Avoid sounding overly hyped OR too formal."""
 
-    twitter_text = call_gemini_with_cache(
-        prompt=prompt,
-        model_name=settings.SUMMARIZER_MODEL,
-        prompt_version=settings.POST_KITS_PROMPT_VERSION,
-        inputs=inputs,
-        temperature=0.5,  # Lower temperature for translations
-    )
+    twitter_text = call_llm(prompt=prompt, model=settings.SUMMARIZER_MODEL)
 
     logger.debug(f"Twitter translation response: {len(twitter_text)} chars")
 

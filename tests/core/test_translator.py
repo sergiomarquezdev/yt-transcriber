@@ -16,9 +16,8 @@ class TestScriptTranslator:
     def translator(self):
         """Create a ScriptTranslator instance for testing."""
         with patch("core.translator.settings") as mock_settings:
-            mock_settings.TRANSLATOR_MODEL = "gemini-2.5-flash-lite"
-            mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-            mock_settings.TRANSLATOR_PROMPT_VERSION = "v1.0"
+            mock_settings.TRANSLATOR_MODEL = "haiku"
+            mock_settings.SUMMARIZER_MODEL = "sonnet"
             return ScriptTranslator(use_translation_model=True)
 
     @pytest.fixture
@@ -57,20 +56,20 @@ class TestScriptTranslator:
     def test_init_with_translation_model(self):
         """Test initialization with translation model."""
         with patch("core.translator.settings") as mock_settings:
-            mock_settings.TRANSLATOR_MODEL = "gemini-2.5-flash-lite"
-            mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
+            mock_settings.TRANSLATOR_MODEL = "haiku"
+            mock_settings.SUMMARIZER_MODEL = "sonnet"
 
             translator = ScriptTranslator(use_translation_model=True)
-            assert translator.model_name == "gemini-2.5-flash-lite"
+            assert translator.model_name == "haiku"
 
     def test_init_with_summarizer_model(self):
         """Test initialization with summarizer model (for scripts)."""
         with patch("core.translator.settings") as mock_settings:
-            mock_settings.TRANSLATOR_MODEL = "gemini-2.5-flash-lite"
-            mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
+            mock_settings.TRANSLATOR_MODEL = "haiku"
+            mock_settings.SUMMARIZER_MODEL = "sonnet"
 
             translator = ScriptTranslator(use_translation_model=False)
-            assert translator.model_name == "gemini-2.5-flash"
+            assert translator.model_name == "sonnet"
 
     # =========================================================================
     # TRANSLATE SUMMARY TESTS
@@ -78,7 +77,7 @@ class TestScriptTranslator:
 
     def test_translate_summary_structure_preserved(self, translator, sample_summary):
         """Test that summary structure is preserved after translation."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Texto traducido al español"
 
             result = translator.translate_summary(sample_summary)
@@ -94,7 +93,7 @@ class TestScriptTranslator:
 
     def test_translate_summary_language_set_to_spanish(self, translator, sample_summary):
         """Test that translated summary has language set to 'es'."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Texto traducido"
 
             result = translator.translate_summary(sample_summary)
@@ -103,7 +102,7 @@ class TestScriptTranslator:
 
     def test_translate_summary_timestamps_preserved(self, translator, sample_summary):
         """Test that timestamp values are preserved (only description translated)."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Descripción traducida"
 
             result = translator.translate_summary(sample_summary)
@@ -119,7 +118,7 @@ class TestScriptTranslator:
 
     def test_translate_summary_calls_llm_for_each_field(self, translator, sample_summary):
         """Test that LLM is called for each translatable field."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Traducido"
 
             translator.translate_summary(sample_summary)
@@ -135,7 +134,7 @@ class TestScriptTranslator:
 
     def test_translate_summary_graceful_degradation(self, translator, sample_summary):
         """Test that translate_summary uses original text on API errors (graceful degradation)."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.side_effect = Exception("API Error")
 
             # Should NOT raise - uses graceful degradation
@@ -147,7 +146,7 @@ class TestScriptTranslator:
 
     def test_translate_summary_new_timestamp(self, translator, sample_summary):
         """Test that translation creates new generated_at timestamp."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Traducido"
 
             result = translator.translate_summary(sample_summary)
@@ -161,7 +160,7 @@ class TestScriptTranslator:
 
     def test_translate_text_block_empty_fallback(self, translator):
         """Test that empty translation returns original text."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = ""  # Empty response
 
             result = translator._translate_text_block(
@@ -174,7 +173,7 @@ class TestScriptTranslator:
 
     def test_translate_text_block_error_fallback(self, translator):
         """Test that translation error returns original text."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.side_effect = Exception("Translation failed")
 
             result = translator._translate_text_block(
@@ -188,7 +187,7 @@ class TestScriptTranslator:
 
     def test_translate_text_block_strips_whitespace(self, translator):
         """Test that translated text is stripped."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "  Texto traducido  \n"
 
             result = translator._translate_text_block(
@@ -205,7 +204,7 @@ class TestScriptTranslator:
 
     def test_translate_seo_title_removes_quotes(self, translator):
         """Test that quotes are removed from translated titles."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = '"Título traducido"'
 
             result = translator._translate_seo_title("Original Title")
@@ -214,7 +213,7 @@ class TestScriptTranslator:
 
     def test_translate_seo_title_fallback_on_error(self, translator):
         """Test that original title is returned on error."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.side_effect = Exception("Error")
 
             result = translator._translate_seo_title("Original Title")
@@ -223,7 +222,7 @@ class TestScriptTranslator:
 
     def test_translate_seo_description_fallback(self, translator):
         """Test SEO description fallback on error."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.side_effect = Exception("Error")
 
             result = translator._translate_seo_description("Original description")
@@ -274,21 +273,21 @@ class TestScriptTranslator:
     # PROMPT CONFIGURATION TESTS
     # =========================================================================
 
-    def test_translation_uses_low_temperature(self, translator, sample_summary):
-        """Test that translations use low temperature for consistency."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+    def test_translation_passes_model(self, translator, sample_summary):
+        """Test that translations pass the correct model."""
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Traducido"
 
             translator.translate_summary(sample_summary)
 
-            # Check temperature in calls
+            # All calls should pass model kwarg
             for call in mock_call.call_args_list:
                 kwargs = call[1]
-                assert kwargs.get("temperature", 0.7) <= 0.5
+                assert "model" in kwargs
 
-    def test_translation_includes_cache_inputs(self, translator):
-        """Test that translation includes proper cache inputs."""
-        with patch("core.translator.call_gemini_with_cache") as mock_call:
+    def test_translation_passes_prompt(self, translator):
+        """Test that translation passes prompt with text to translate."""
+        with patch("core.translator.call_llm") as mock_call:
             mock_call.return_value = "Traducido"
 
             translator._translate_text_block(
@@ -298,8 +297,5 @@ class TestScriptTranslator:
             )
 
             call_kwargs = mock_call.call_args[1]
-            inputs = call_kwargs["inputs"]
-
-            assert "text" in inputs
-            assert "block_type" in inputs
-            assert "task" in inputs
+            assert "prompt" in call_kwargs
+            assert "Some text to translate" in call_kwargs["prompt"]

@@ -7,7 +7,7 @@ import logging
 import re
 from datetime import datetime
 
-from core.llm import call_gemini_with_cache
+from core.llm import call_llm
 from core.models import TimestampedSection, VideoSummary
 from core.settings import settings
 
@@ -24,11 +24,11 @@ class ScriptTranslator:
     """Translates generated scripts and summaries to Spanish with intelligent term preservation."""
 
     def __init__(self, use_translation_model: bool = True):
-        """Initialize the translator with Gemini API.
+        """Initialize the translator.
 
         Args:
-            use_translation_model: If True, uses TRANSLATOR_MODEL (gemini-2.5-flash-lite for summaries).
-                                   If False, uses PRO_MODEL (gemini-2.5-flash for scripts).
+            use_translation_model: If True, uses TRANSLATOR_MODEL (haiku for summaries).
+                                   If False, uses SUMMARIZER_MODEL (sonnet for scripts).
         """
         self.model_name = (
             settings.TRANSLATOR_MODEL if use_translation_model else settings.SUMMARIZER_MODEL
@@ -198,22 +198,7 @@ TEXT TO TRANSLATE:
 OUTPUT: Only the translated text in Spanish, nothing else."""
 
         try:
-            # Prepare cache inputs
-            inputs = {
-                "text": text[:500],  # First 500 chars for uniqueness
-                "block_type": block_type,
-                "task": "translation_block",
-            }
-
-            # Call Gemini with caching
-            translated = call_gemini_with_cache(
-                prompt=prompt,
-                model_name=self.model_name,
-                prompt_version=settings.TRANSLATOR_PROMPT_VERSION,
-                inputs=inputs,
-                temperature=0.3,
-                error_class=TranslationError,
-            )
+            translated = call_llm(prompt=prompt, model=self.model_name)
 
             if not translated:
                 logger.warning(f"Empty translation for {block_type}, using original")
@@ -264,25 +249,10 @@ SCRIPT TO TRANSLATE:
 OUTPUT: Only the translated script in Spanish, maintaining exact markdown structure."""
 
         try:
-            # Prepare cache inputs
-            inputs = {
-                "content": content[:500],  # First 500 chars for uniqueness
-                "title": title,
-                "task": "translation_content",
-            }
-
-            # Call Gemini with caching
-            translated = call_gemini_with_cache(
-                prompt=prompt,
-                model_name=self.model_name,
-                prompt_version=settings.TRANSLATOR_PROMPT_VERSION,
-                inputs=inputs,
-                temperature=0.3,
-                error_class=TranslationError,
-            )
+            translated = call_llm(prompt=prompt, model=self.model_name)
 
             if not translated:
-                raise TranslationError("Empty translation response from Gemini")
+                raise TranslationError("Empty translation response")
 
             return translated.strip()
 
@@ -314,23 +284,9 @@ ORIGINAL TITLE:
 OUTPUT: Only the translated title, nothing else."""
 
         try:
-            # Prepare cache inputs
-            inputs = {
-                "title": title,
-                "task": "translation_seo_title",
-            }
+            translated = call_llm(prompt=prompt, model=self.model_name)
 
-            # Call Gemini with caching
-            translated = call_gemini_with_cache(
-                prompt=prompt,
-                model_name=self.model_name,
-                prompt_version=settings.TRANSLATOR_PROMPT_VERSION,
-                inputs=inputs,
-                temperature=0.3,
-                error_class=TranslationError,
-            )
-
-            # Remove quotes if Gemini added them
+            # Remove quotes if LLM added them
             translated = re.sub(r'^["\'](.*)["\']$', r"\1", translated.strip())
 
             return translated if translated else title
@@ -362,21 +318,7 @@ ORIGINAL DESCRIPTION:
 OUTPUT: Only the translated description, nothing else."""
 
         try:
-            # Prepare cache inputs
-            inputs = {
-                "description": description[:200],  # First 200 chars for uniqueness
-                "task": "translation_seo_description",
-            }
-
-            # Call Gemini with caching
-            translated = call_gemini_with_cache(
-                prompt=prompt,
-                model_name=self.model_name,
-                prompt_version=settings.TRANSLATOR_PROMPT_VERSION,
-                inputs=inputs,
-                temperature=0.3,
-                error_class=TranslationError,
-            )
+            translated = call_llm(prompt=prompt, model=self.model_name)
 
             return translated.strip() if translated else description
 

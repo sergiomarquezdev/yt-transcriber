@@ -66,50 +66,42 @@ class AppSettings(BaseSettings):
         description="Ruta personalizada a FFmpeg (opcional)",
     )
 
-    # YouTube Script Generator settings
-    GOOGLE_API_KEY: str = Field(
-        default="",
-        description="Google Gemini API key para script generation",
+    # ========== CLAUDE CLI CONFIGURATION ==========
+
+    CLAUDE_CLI_PATH: str = Field(
+        default="claude",
+        description="Path to Claude CLI executable",
     )
-    OPENAI_API_KEY: str = Field(
-        default="",
-        description="OpenAI API key para modelos GPT (opcional)",
+    CLAUDE_CLI_TIMEOUT: int = Field(
+        default=180,
+        description="Claude CLI timeout in seconds",
     )
-    ANTHROPIC_API_KEY: str = Field(
-        default="",
-        description="Anthropic API key para modelos Claude (opcional)",
+    DEFAULT_LLM_MODEL: str = Field(
+        default="sonnet",
+        description="Default Claude model (opus/sonnet/haiku)",
     )
 
-    # ========== GEMINI MODEL CONFIGURATION (Optimized for Quality + Cost) ==========
+    # ========== MODEL SELECTION (Claude model names: opus/sonnet/haiku) ==========
 
-    # For script synthesis and generation (CRITICAL - needs max quality)
     PRO_MODEL: str = Field(
-        default="gemini-2.5-pro",
-        description="Modelo premium para synthesis y script generation ($2.50/$15.00)",
+        default="opus",
+        description="Modelo premium para synthesis y script generation",
     )
-
-    # For video summarization (balanced quality, free tier)
     SUMMARIZER_MODEL: str = Field(
-        default="gemini-2.5-flash",
-        description="Modelo para resúmenes de video (free tier, excelente calidad)",
+        default="sonnet",
+        description="Modelo para resúmenes de video",
     )
-
-    # For pattern analysis from transcripts (10 videos, free tier)
     PATTERN_ANALYZER_MODEL: str = Field(
-        default="gemini-2.5-flash",
-        description="Modelo para análisis de patrones (free tier, suficiente calidad)",
+        default="sonnet",
+        description="Modelo para análisis de patrones",
     )
-
-    # For translations (summaries use lite, scripts use flash)
     TRANSLATOR_MODEL: str = Field(
-        default="gemini-2.5-flash-lite",
-        description="Modelo para traducciones simples ($0.075/$0.30)",
+        default="haiku",
+        description="Modelo para traducciones simples",
     )
-
-    # For simple tasks (query optimization)
     QUERY_OPTIMIZER_MODEL: str = Field(
-        default="gemini-2.5-flash-lite",
-        description="Modelo para optimización de queries ($0.075/$0.30)",
+        default="haiku",
+        description="Modelo para optimización de queries",
     )
 
     # ========== DIRECTORY CONFIGURATION ==========
@@ -175,58 +167,6 @@ class AppSettings(BaseSettings):
         description="Directorio para análisis de tendencias",
     )
 
-    # ========== LLM CACHING & RATE LIMITING CONFIGURATION ==========
-
-    # LLM Cache settings
-    LLM_CACHE_ENABLED: bool = Field(
-        default=True,
-        description="Enable/disable LLM response caching",
-    )
-    LLM_CACHE_TTL_DAYS: int = Field(
-        default=7,
-        description="Cache time-to-live in days",
-    )
-    LLM_CACHE_DIR: Path = Field(
-        default=Path("output/.llm_cache/"),
-        description="Directory for LLM cache storage",
-    )
-
-    # Simple rate limiting (QPS) para llamadas LLM (0 = deshabilitado)
-    LLM_QPS: int = Field(
-        default=0,
-        description="Límite de solicitudes por minuto a LLM (0 = sin límite)",
-    )
-
-    # Prompt versioning (for cache invalidation)
-    POST_KITS_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Post Kits prompt template version",
-    )
-    SUMMARIZER_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Summarizer prompt template version",
-    )
-    PATTERN_ANALYZER_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Pattern Analyzer prompt template version",
-    )
-    SYNTHESIZER_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Pattern Synthesizer prompt template version",
-    )
-    SCRIPT_GENERATOR_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Script Generator prompt template version",
-    )
-    TRANSLATOR_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Translator prompt template version",
-    )
-    INSIGHT_GENERATOR_PROMPT_VERSION: str = Field(
-        default="v1.0",
-        description="Insight Generator prompt template version",
-    )
-
     # ========== POST KITS VALIDATION (PARAMETRIZABLE) ==========
     # LinkedIn
     POST_KITS_LINKEDIN_MIN_CHARS: int = Field(
@@ -276,12 +216,6 @@ try:
         # Mantener el valor por defecto si el alias no es válido
         with contextlib.suppress(Exception):
             settings.TRENDS_OUTPUT_DIR = Path(trends_alias)
-
-    # LLM_CACHE_PATH -> LLM_CACHE_DIR
-    cache_alias = os.getenv("LLM_CACHE_PATH")
-    if cache_alias:
-        with contextlib.suppress(Exception):
-            settings.LLM_CACHE_DIR = Path(cache_alias)
 
 except Exception as e:
     sys.stderr.write(f"CRITICAL: Error al cargar o validar la configuración: {e}\n")

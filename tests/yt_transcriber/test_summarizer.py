@@ -293,12 +293,11 @@ class TestGenerateSummary:
 
     def test_successful_generation(self, sample_llm_summary_response, sample_transcript):
         """Test successful summary generation."""
-        with patch("yt_transcriber.summarizer.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.summarizer.call_llm") as mock_call:
             mock_call.return_value = sample_llm_summary_response
 
             with patch("yt_transcriber.summarizer.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.SUMMARIZER_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 summary = generate_summary(
                     transcript=sample_transcript,
@@ -319,12 +318,11 @@ class TestGenerateSummary:
         Es muy importante para los desarrolladores.
         """
 
-        with patch("yt_transcriber.summarizer.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.summarizer.call_llm") as mock_call:
             mock_call.return_value = sample_llm_summary_response
 
             with patch("yt_transcriber.summarizer.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.SUMMARIZER_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 summary = generate_summary(
                     transcript=spanish_transcript,
@@ -338,13 +336,11 @@ class TestGenerateSummary:
 
     def test_api_error_raises_summarization_error(self, sample_transcript):
         """Test that API errors are wrapped in SummarizationError."""
-        with patch("yt_transcriber.summarizer.call_gemini_with_cache") as mock_call:
-            # Simulate what call_gemini_with_cache does: wrap in error_class
+        with patch("yt_transcriber.summarizer.call_llm") as mock_call:
             mock_call.side_effect = SummarizationError("API failed")
 
             with patch("yt_transcriber.summarizer.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.SUMMARIZER_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 with pytest.raises(SummarizationError, match="API failed"):
                     generate_summary(
@@ -358,12 +354,11 @@ class TestGenerateSummary:
         """Test that word count is calculated."""
         transcript = "word " * 100  # 100 words
 
-        with patch("yt_transcriber.summarizer.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.summarizer.call_llm") as mock_call:
             mock_call.return_value = sample_llm_summary_response
 
             with patch("yt_transcriber.summarizer.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.SUMMARIZER_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 summary = generate_summary(
                     transcript=transcript,
@@ -379,12 +374,11 @@ class TestGenerateSummary:
         # 150 words per minute average
         transcript = "word " * 300  # 300 words = 2 minutes
 
-        with patch("yt_transcriber.summarizer.call_gemini_with_cache") as mock_call:
+        with patch("yt_transcriber.summarizer.call_llm") as mock_call:
             mock_call.return_value = sample_llm_summary_response
 
             with patch("yt_transcriber.summarizer.settings") as mock_settings:
-                mock_settings.SUMMARIZER_MODEL = "gemini-2.5-flash"
-                mock_settings.SUMMARIZER_PROMPT_VERSION = "v1.0"
+                mock_settings.SUMMARIZER_MODEL = "sonnet"
 
                 summary = generate_summary(
                     transcript=transcript,

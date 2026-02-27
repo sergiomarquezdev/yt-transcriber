@@ -152,9 +152,6 @@ def sample_video_summary():
 def mock_env_vars(monkeypatch):
     """Set up mock environment variables for testing."""
     env_vars = {
-        "GOOGLE_API_KEY": "test_google_api_key",
-        "OPENAI_API_KEY": "test_openai_api_key",
-        "ANTHROPIC_API_KEY": "test_anthropic_api_key",
         "WHISPER_MODEL_NAME": "tiny",
         "WHISPER_DEVICE": "cpu",
         "LOG_LEVEL": "DEBUG",
@@ -166,11 +163,9 @@ def mock_env_vars(monkeypatch):
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    """Remove all API key environment variables."""
+    """Remove API-related environment variables."""
     keys_to_remove = [
-        "GOOGLE_API_KEY",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
+        "CLAUDE_CLI_PATH",
     ]
     for key in keys_to_remove:
         monkeypatch.delenv(key, raising=False)

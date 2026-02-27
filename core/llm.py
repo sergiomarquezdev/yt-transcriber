@@ -1,385 +1,115 @@
-"""Shared utilities for LLM caching across modules.
+"""Claude CLI wrapper for LLM calls via subprocess.
 
-Now supports multi-provider dispatch based on the model name prefix:
-
-- "openai:<model>"  -> OpenAI Chat Completions API
-- "anthropic:<model>" -> Anthropic Messages API
-- "gemini:<model>"  -> Google Gemini API
-- "<model>"         -> Defaults to Gemini (backwards compatible)
-
-All existing call sites keep using `call_gemini_with_cache`, which will
-intelligently route to the correct provider while preserving cache keys
-and error semantics.
+Replaces multi-provider SDK dispatch with a single function that invokes
+the `claude` CLI. Auth is handled by the CLI's own subscription (Max/Pro).
 """
 
 import logging
+import os
+import shutil
+import subprocess
+
+from core.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
     """Base exception for LLM-related errors."""
 
-    pass
-
 
 class LLMProviderError(LLMError):
-    """Error from LLM provider (API error, rate limit, etc.)."""
-
-    pass
+    """Error from LLM provider (CLI failure, timeout, etc.)."""
 
 
 class LLMConfigurationError(LLMError):
-    """Error in LLM configuration (missing API key, unknown provider, etc.)."""
-
-    pass
+    """Error in LLM configuration (CLI not found, etc.)."""
 
 
-import os
-import time
-from collections import deque
-from threading import Lock
-
-import google.generativeai as genai
-
-# OpenAI and Anthropic are optional; we'll import them lazily inside the call
-# when needed to avoid adding hard dependencies for users who only use Gemini.
-from core.cache import LLMCache
-from core.settings import settings
-
-logger = logging.getLogger(__name__)
-
-# Global cache instance
-_cache: LLMCache | None = None
-_call_times: deque[float] = deque(maxlen=settings.LLM_QPS if settings.LLM_QPS > 0 else 1000)
-_call_times_lock = Lock()
-
-# Simple pricing tables (USD per 1M tokens) for rough cost estimation
-_PRICING = {
-    "gemini": {
-        "gemini-2.5-pro": (1.25, 10.0),
-        "gemini-2.5-flash": (0.30, 2.50),
-        "gemini-2.5-flash-lite": (0.10, 0.40),
-        "gemini-2.0-flash": (0.30, 2.50),
-        "gemini-2.0-flash-lite": (0.10, 0.40),
-    },
-    "openai": {
-        "gpt-5": (1.25, 10.0),
-        "gpt-5-mini": (0.25, 2.0),
-        "gpt-5-nano": (0.05, 0.40),
-        "gpt-4o-mini": (0.15, 0.60),
-    },
-    "anthropic": {
-        "claude-4.5-sonnet": (3.0, 15.0),
-        "claude-4-sonnet": (3.0, 15.0),
-        "claude-3.7-sonnet": (3.0, 15.0),
-        "claude-3.5-haiku": (0.80, 4.0),
-        "claude-3-haiku": (0.25, 1.25),
-    },
-}
-
-
-def _estimate_tokens(text: str) -> int:
-    """Rough token estimation from text length.
-
-    Assumes ~4 chars per token on average for Latin text.
-    """
-    return max(1, int(len(text) / 4))
-
-
-def _get_model_pricing(provider: str, model_name: str) -> tuple[float, float] | None:
-    pricing = _PRICING.get(provider, {})
-    # Exact match first
-    if model_name in pricing:
-        return pricing[model_name]
-    # Fallback: partial match
-    for key, value in pricing.items():
-        if key in model_name:
-            return value
-    return None
-
-
-def get_llm_cache() -> LLMCache:
-    """Get or create the global LLM cache instance."""
-    global _cache
-    if _cache is None:
-        _cache = LLMCache(
-            cache_dir=settings.LLM_CACHE_DIR,
-            ttl_days=settings.LLM_CACHE_TTL_DAYS,
-        )
-    return _cache
-
-
-def call_gemini_with_cache(
+def call_llm(
     prompt: str,
-    model_name: str,
-    prompt_version: str,
-    inputs: dict,
-    temperature: float = 0.7,
-    error_class: type[Exception] = Exception,
+    model: str | None = None,
+    timeout: int | None = None,
 ) -> str:
-    """Call an LLM (Gemini by default, OpenAI/Anthropic if prefixed) with intelligent caching.
-
-    This is a shared utility function used across all modules that call LLMs.
-    It provides consistent caching behavior based on content hashing.
-
-    Cache key = hash(model_name + prompt_version + inputs)
-
-    This ensures:
-    - Same inputs + same prompt version → cache HIT (instant + free)
-    - Different inputs → cache MISS (new generation)
-    - Updated prompt version → cache MISS (regenerates with new prompt)
+    """Call Claude CLI and return the response text.
 
     Args:
-        prompt: Full prompt text
-        model_name: Model name with optional provider prefix (e.g., "gemini-1.5-flash-8b", "openai:gpt-4o-mini")
-        prompt_version: Prompt template version for cache invalidation (e.g., "v1.0")
-        inputs: Dictionary of input data (transcript, title, etc.)
-        temperature: Generation temperature (default: 0.7)
-        error_class: Exception class to raise on errors (default: Exception)
+        prompt: Full prompt text (sent via stdin)
+        model: Claude model name ("sonnet", "haiku", "opus"). Defaults to settings.DEFAULT_LLM_MODEL
+        timeout: Timeout in seconds. Defaults to settings.CLAUDE_CLI_TIMEOUT
 
     Returns:
-        Generated text from LLM
+        Response text from Claude CLI
 
     Raises:
-        error_class: If API call fails
+        LLMConfigurationError: If Claude CLI is not found in PATH
+        LLMProviderError: If CLI returns non-zero exit, times out, or returns empty response
     """
-    # Determine provider + normalized model id (supports provider prefixes)
-    provider = "gemini"
-    normalized_model = model_name
-    if ":" in model_name:
-        maybe_provider, remainder = model_name.split(":", 1)
-        if maybe_provider.lower() in {"openai", "gemini", "anthropic"}:
-            provider = maybe_provider.lower()
-            normalized_model = remainder
+    model = model if model is not None else settings.DEFAULT_LLM_MODEL
+    timeout = timeout if timeout is not None else settings.CLAUDE_CLI_TIMEOUT
+    cli_path = settings.CLAUDE_CLI_PATH
 
-    if not settings.LLM_CACHE_ENABLED:
-        # Cache disabled - direct API call to the selected provider
-        logger.debug(f"Cache disabled - calling {provider} API directly")
-        return _call_llm_direct(
-            provider=provider,
-            model_name=normalized_model,
-            prompt=prompt,
-            temperature=temperature,
-            error_class=error_class,
-        )
+    if not shutil.which(cli_path):
+        raise LLMConfigurationError(f"Claude CLI not found: '{cli_path}'")
 
-    # Try cache first
-    cache = get_llm_cache()
-    cached = cache.get(model_name, prompt_version, inputs)
+    args = [
+        cli_path,
+        "-p",
+        "--model",
+        model,
+        "--output-format",
+        "text",
+        "--max-turns",
+        "1",
+    ]
 
-    if cached:
-        # Cache hit!
-        cached_text: str = cached["text"]
-        return cached_text
-
-    # Cache miss - call the selected provider API
-    logger.debug(f"Cache MISS - Calling {provider.upper()} API ({normalized_model})...")
-    start_time = time.time()
-
-    # Simple rate limiting (requests per minute)
-    try:
-        if settings.LLM_QPS and settings.LLM_QPS > 0:
-            window = 60.0
-            sleep_time = 0
-
-            with _call_times_lock:
-                now = time.time()
-                # Remove timestamps older than window
-                while _call_times and now - _call_times[0] > window:
-                    _call_times.popleft()
-
-                if len(_call_times) >= settings.LLM_QPS:
-                    sleep_time = window - (now - _call_times[0]) + 0.01
-
-                # Only append if not sleeping (will append after sleep)
-                if sleep_time <= 0:
-                    _call_times.append(now)
-
-            # Sleep OUTSIDE the lock to avoid blocking other threads unnecessarily
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-                # Append after sleep
-                with _call_times_lock:
-                    _call_times.append(time.time())
-    except Exception:
-        # Never fail due to rate limiter
-        logger.warning("Rate limiter exception", exc_info=True)
-        pass
+    # Clean env to allow running from within a Claude Code session
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
 
     try:
-        response_text: str = _call_llm_direct(
-            provider=provider,
-            model_name=normalized_model,
-            prompt=prompt,
-            temperature=temperature,
-            error_class=error_class,
+        result = subprocess.run(
+            args,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            env=env,
         )
-        elapsed = time.time() - start_time
+    except subprocess.TimeoutExpired as e:
+        raise LLMProviderError(f"Claude CLI timed out after {timeout}s") from e
+    except OSError as e:
+        raise LLMProviderError(f"Failed to execute Claude CLI: {e}") from e
 
-        # Rough cost estimation based on prompt/response sizes and pricing tables
-        est_cost = 0.0
-        try:
-            pricing = _get_model_pricing(provider, normalized_model)
-            if pricing:
-                in_price, out_price = pricing
-                in_tokens = _estimate_tokens(prompt)
-                out_tokens = _estimate_tokens(response_text)
-                est_cost = (in_tokens / 1_000_000) * in_price + (out_tokens / 1_000_000) * out_price
-        except Exception:
-            est_cost = 0.0
-
-        # Save to cache (store cost estimate and elapsed time)
-        cache.set(
-            model_name,  # keep original (with prefix) to partition caches by provider
-            prompt_version,
-            inputs,
-            response={"text": response_text},
-            cost=est_cost,
-            time_saved=elapsed,
+    if result.returncode != 0:
+        raise LLMProviderError(
+            f"Claude CLI failed (exit {result.returncode}): {result.stderr.strip()}"
         )
 
-        return response_text
+    response = result.stdout.strip()
+    if not response:
+        raise LLMProviderError("Claude CLI returned empty response")
 
-    except Exception as e:
-        logger.error(f"LLM API call failed ({provider}): {e}")
-        raise error_class(f"LLM API call failed ({provider}): {e}") from e
+    return response
 
 
-def _call_llm_direct(
-    provider: str,
-    model_name: str,
-    prompt: str,
-    temperature: float,
-    error_class: type[Exception],
-) -> str:
-    """Call the specific provider API without caching.
+def is_model_configured(model_name: str) -> tuple[bool, str]:
+    """Check if Claude CLI is available.
 
     Args:
-        provider: "gemini" | "openai" | "anthropic"
-        model_name: Provider-specific model identifier (no prefix)
-        prompt: Full prompt text
-        temperature: Generation temperature
-        error_class: Exception class to raise on errors
+        model_name: Model name (unused, kept for API compatibility)
+
+    Returns:
+        Tuple of (is_configured, reason_if_not)
     """
-    if provider == "gemini":
-        if not settings.GOOGLE_API_KEY:
-            raise error_class(
-                "GOOGLE_API_KEY not configured. Set the environment variable to use Gemini models."
-            )
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt, generation_config={"temperature": temperature})
-        return response.text
-
-    if provider == "openai":
-        if not getattr(settings, "OPENAI_API_KEY", None) and not os.environ.get("OPENAI_API_KEY"):
-            raise error_class(
-                "OPENAI_API_KEY not configured. Set the environment variable to use OpenAI models."
-            )
-        try:
-            from openai import OpenAI  # type: ignore
-        except Exception as ie:
-            raise error_class(
-                "Package 'openai' not installed. Add 'openai' to requirements.txt and install dependencies."
-            ) from ie
-
-        api_key = getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_API_KEY")
-        client = OpenAI(api_key=api_key)
-        # Use Chat Completions with a single user message.
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-        )
-        if not resp.choices:
-            raise error_class("OpenAI API returned empty choices")
-        content = resp.choices[0].message.content
-        # content can be str or list of content parts; normalize to str
-        if isinstance(content, list):
-            text_parts = []
-            for part in content:
-                if isinstance(part, str):
-                    text_parts.append(part)
-                elif isinstance(part, dict) and "text" in part:
-                    text_parts.append(part["text"])
-            return "".join(text_parts)
-        return content or ""
-
-    if provider == "anthropic":
-        if not getattr(settings, "ANTHROPIC_API_KEY", None) and not os.environ.get(
-            "ANTHROPIC_API_KEY"
-        ):
-            raise error_class(
-                "ANTHROPIC_API_KEY not configured. Set the environment variable to use Anthropic models."
-            )
-        try:
-            from anthropic import Anthropic  # type: ignore
-        except Exception as ie:
-            raise error_class(
-                "Package 'anthropic' not installed. Add 'anthropic' to requirements.txt and install dependencies."
-            ) from ie
-
-        api_key = getattr(settings, "ANTHROPIC_API_KEY", None) or os.environ.get(
-            "ANTHROPIC_API_KEY"
-        )
-        client = Anthropic(api_key=api_key)
-        # Use Messages API with a single user message
-        msg = client.messages.create(
-            model=model_name,
-            max_tokens=4096,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        # Concatenate text content from blocks
-        content_blocks = getattr(msg, "content", []) or []
-        if not content_blocks:
-            raise error_class("Anthropic API returned empty content")
-        parts = []
-        for block in content_blocks:
-            text = getattr(block, "text", None)
-            if text:
-                parts.append(text)
-        return "".join(parts)
-
-    # Defensive fallback
-    raise error_class(f"Unknown LLM provider: {provider}")
-
-
-# Backwards-compatible alias (now supports provider prefixes)
-call_llm_with_cache = call_gemini_with_cache
-
-
-def is_model_configured(model_name: str) -> tuple[bool, str | None]:
-    """Check whether the required API key is configured for a provider-prefixed model.
-
-    Returns (ok, reason_if_not_ok).
-    """
-    provider = "gemini"
-    if ":" in model_name:
-        pfx, _ = model_name.split(":", 1)
-        provider = pfx.lower()
-
-    if provider == "gemini":
-        return (bool(settings.GOOGLE_API_KEY), "Missing GOOGLE_API_KEY")
-    if provider == "openai":
-        import os as _os
-
-        has_key = bool(getattr(settings, "OPENAI_API_KEY", "") or _os.environ.get("OPENAI_API_KEY"))
-        return (has_key, "Missing OPENAI_API_KEY")
-    if provider == "anthropic":
-        import os as _os
-
-        has_key = bool(
-            getattr(settings, "ANTHROPIC_API_KEY", "") or _os.environ.get("ANTHROPIC_API_KEY")
-        )
-        return (has_key, "Missing ANTHROPIC_API_KEY")
-
-    return False, f"Unknown provider: {provider}"
+    if shutil.which(settings.CLAUDE_CLI_PATH):
+        return True, ""
+    return False, f"Claude CLI not found at '{settings.CLAUDE_CLI_PATH}'"
 
 
 __all__ = [
-    "call_gemini_with_cache",
-    "call_llm_with_cache",
-    "get_llm_cache",
+    "call_llm",
     "is_model_configured",
     "LLMError",
     "LLMProviderError",
