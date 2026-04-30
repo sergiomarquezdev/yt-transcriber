@@ -17,6 +17,14 @@ if _site_packages:
         if os.path.isdir(_dll_dir):
             os.add_dll_directory(_dll_dir)
             os.environ["PATH"] = _dll_dir + os.pathsep + os.environ.get("PATH", "")
+        elif sys.platform == "win32":
+            import logging as _logging
+
+            _logging.getLogger(__name__).warning(
+                f"Expected NVIDIA DLL dir not found: {_dll_dir}. "
+                "If using CUDA, install with: "
+                "pip install nvidia-cublas-cu12 'nvidia-cudnn-cu12==9.*'"
+            )
 
 logger = logging.getLogger(__name__)
 
