@@ -27,6 +27,7 @@ dependencies = [
     "soundfile>=0.12.0",
     "tqdm>=4.65.0",
     "rich>=13.7.0",
+    "questionary>=2.0.0",
 ]
 
 [project.optional-dependencies]
