@@ -63,6 +63,25 @@ class TestDetectInputType:
 
         assert detect_input_type("   ") == InputType.UNKNOWN
 
+    def test_false_positive_non_youtube_with_list_param(self):
+        """URL on non-YouTube domain with list= must NOT be classified as playlist."""
+        from yt_transcriber.tui import InputType, detect_input_type
+
+        assert detect_input_type("https://example.com/?x=1&list=foo") == InputType.UNKNOWN
+
+    def test_youtube_watch_with_list_first_v_after(self):
+        """URL with list= before v= still detected as playlist."""
+        from yt_transcriber.tui import InputType, detect_input_type
+
+        url = "https://www.youtube.com/watch?list=PLxxx&v=abc"
+        assert detect_input_type(url) == InputType.YOUTUBE_PLAYLIST
+
+    def test_youtube_short_url_with_list(self):
+        """youtu.be/abc?list=PLxxx — playlist (any list= on youtube domain)."""
+        from yt_transcriber.tui import InputType, detect_input_type
+
+        assert detect_input_type("https://youtu.be/abc?list=PLxxx") == InputType.YOUTUBE_PLAYLIST
+
 
 class TestApplyValidationRules:
     def test_post_kits_forces_summarize(self):

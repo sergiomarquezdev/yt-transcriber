@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import questionary
 
@@ -20,18 +21,20 @@ class InputType(str, Enum):
     UNKNOWN = "unknown"
 
 
+_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
+_DRIVE_HOSTS = {"drive.google.com", "docs.google.com"}
+
+
 def detect_input_type(value: str) -> InputType:
     """Classify a user-supplied input into one of the supported types.
 
-    Order matters:
-    1. Existing local path beats everything (so a path that happens to contain
-       'youtube' is still treated as local).
-    2. Explicit playlist marker (`playlist?list=` or `&list=`) trumps generic
-       video URL detection — an URL with both v= and list= is treated as a
-       playlist (most common user intent).
-    3. Generic YouTube watch URL.
-    4. Google Drive / Docs.
-    5. Anything else → UNKNOWN.
+    Order:
+    1. Existing local path beats URL detection.
+    2. YouTube domain check (youtube.com / youtu.be variants).
+       - If query has `list=` → playlist (regardless of v= presence/order).
+       - Else youtube watch path or youtu.be path → video.
+    3. Google Drive / Docs domain.
+    4. Anything else → UNKNOWN.
     """
     stripped = value.strip()
     if not stripped:
@@ -42,19 +45,28 @@ def detect_input_type(value: str) -> InputType:
         if Path(stripped).expanduser().exists():
             return InputType.LOCAL
     except (OSError, ValueError):
-        # Some strings (e.g. URLs with `?`) raise on Windows. Fall through.
         pass
 
-    # 2. Playlist (explicit)
-    if "playlist?list=" in stripped or "&list=" in stripped:
-        return InputType.YOUTUBE_PLAYLIST
+    # Parse URL
+    try:
+        parsed = urlparse(stripped)
+    except ValueError:
+        return InputType.UNKNOWN
 
-    # 3. YouTube video
-    if "youtube.com/watch" in stripped or "youtu.be/" in stripped:
-        return InputType.YOUTUBE_VIDEO
+    host = (parsed.netloc or "").lower()
 
-    # 4. Google Drive / Docs
-    if "drive.google.com" in stripped or "docs.google.com" in stripped:
+    # 2. YouTube
+    if host in _YOUTUBE_HOSTS:
+        query = parse_qs(parsed.query)
+        if "list" in query:
+            return InputType.YOUTUBE_PLAYLIST
+        # video paths: /watch (long), /<id> (short youtu.be)
+        if parsed.path.startswith("/watch") or host == "youtu.be":
+            return InputType.YOUTUBE_VIDEO
+        return InputType.UNKNOWN
+
+    # 3. Drive
+    if host in _DRIVE_HOSTS:
         return InputType.DRIVE
 
     return InputType.UNKNOWN
