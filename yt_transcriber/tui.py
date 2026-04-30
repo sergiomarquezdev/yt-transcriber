@@ -56,3 +56,23 @@ def detect_input_type(value: str) -> InputType:
         return InputType.DRIVE
 
     return InputType.UNKNOWN
+
+
+def apply_validation_rules(options: dict) -> dict:
+    """Enforce CLI cross-flag implications on a copy of `options`.
+
+    Rules (mirror `cli.py` and `service.py`):
+    - `post_kits=True` forces `summarize=True`.
+    - `visual_evidence=True` forces `segments=True`.
+
+    Missing keys are left untouched (e.g. playlist options dict has no
+    `segments` / `visual_evidence`).
+
+    Returns a new dict; does not mutate the input.
+    """
+    result = dict(options)
+    if result.get("post_kits"):
+        result["summarize"] = True
+    if result.get("visual_evidence"):
+        result["segments"] = True
+    return result

@@ -64,3 +64,52 @@ class TestDetectInputType:
         from yt_transcriber.tui import InputType, detect_input_type
 
         assert detect_input_type("   ") == InputType.UNKNOWN
+
+
+class TestApplyValidationRules:
+    def test_post_kits_forces_summarize(self):
+        from yt_transcriber.tui import apply_validation_rules
+
+        opts = {"summarize": False, "post_kits": True, "segments": False, "visual_evidence": False}
+        result = apply_validation_rules(opts)
+        assert result["summarize"] is True
+        assert result["post_kits"] is True
+
+    def test_visual_evidence_forces_segments(self):
+        from yt_transcriber.tui import apply_validation_rules
+
+        opts = {"summarize": False, "post_kits": False, "segments": False, "visual_evidence": True}
+        result = apply_validation_rules(opts)
+        assert result["segments"] is True
+        assert result["visual_evidence"] is True
+
+    def test_no_implications_keeps_values(self):
+        from yt_transcriber.tui import apply_validation_rules
+
+        opts = {"summarize": True, "post_kits": False, "segments": True, "visual_evidence": False}
+        result = apply_validation_rules(opts)
+        assert result == opts
+
+    def test_both_implications_apply(self):
+        from yt_transcriber.tui import apply_validation_rules
+
+        opts = {"summarize": False, "post_kits": True, "segments": False, "visual_evidence": True}
+        result = apply_validation_rules(opts)
+        assert result["summarize"] is True
+        assert result["segments"] is True
+
+    def test_does_not_mutate_input(self):
+        from yt_transcriber.tui import apply_validation_rules
+
+        opts = {"summarize": False, "post_kits": True, "segments": False, "visual_evidence": False}
+        opts_copy = dict(opts)
+        apply_validation_rules(opts)
+        assert opts == opts_copy  # original untouched
+
+    def test_playlist_options_no_segments_keys(self):
+        """Playlist options dict has no segments/visual_evidence keys; rules must not crash."""
+        from yt_transcriber.tui import apply_validation_rules
+
+        opts = {"summarize": False, "post_kits": True}
+        result = apply_validation_rules(opts)
+        assert result["summarize"] is True
