@@ -271,3 +271,113 @@ def prompt_run_confirmation(preview: str) -> bool:
 def prompt_run_again() -> bool:
     """Ask if the user wants another run. Default Yes for chained workflows."""
     return questionary.confirm("¿Otra transcripción?", default=True).unsafe_ask()
+
+
+def _print_transcribe_results(result: tuple) -> None:
+    """Pretty-print the tuple returned by run_transcribe_command."""
+    transcript_path, summary_en, summary_es, post_kits = result
+    if not any(result):
+        print("\n[!] No se generó ningún archivo. Revisa los logs.")
+        return
+    print("\nArchivos generados:")
+    if transcript_path:
+        print(f"  - transcript: {transcript_path}")
+    if summary_en:
+        print(f"  - summary EN: {summary_en}")
+    if summary_es:
+        print(f"  - summary ES: {summary_es}")
+    if post_kits:
+        print(f"  - post kits:  {post_kits}")
+
+
+def _print_playlist_results(stats: dict) -> None:
+    """Pretty-print the dict returned by run_playlist_command."""
+    successful = stats.get("successful", 0)
+    failed = stats.get("failed", 0)
+    print(f"\nPlaylist procesada — successful={successful}, failed={failed}")
+
+
+def _run_transcribe(url: str, input_type: InputType) -> None:
+    from yt_transcriber.cli import run_transcribe_command
+
+    options = prompt_transcribe_options(input_type)
+    options = apply_validation_rules(options)
+    preview = format_command_preview("transcribe", url, options)
+
+    if not prompt_run_confirmation(preview):
+        print("Cancelado.")
+        return
+
+    print("\nEjecutando...\n")
+    result = run_transcribe_command(
+        url=url,
+        language=options["language"],
+        ffmpeg_location=None,
+        generate_post_kits=options["post_kits"],
+        generate_summary=options["summarize"],
+        reuse_transcripts=False,
+        segments_override=options["segments"],
+        visual_override=options["visual_evidence"],
+    )
+    _print_transcribe_results(result)
+
+
+def _run_playlist(url: str) -> None:
+    from yt_transcriber.cli import run_playlist_command
+
+    options = prompt_playlist_options()
+    options = apply_validation_rules(options)
+    preview = format_command_preview("playlist", url, options)
+
+    if not prompt_run_confirmation(preview):
+        print("Cancelado.")
+        return
+
+    print("\nEjecutando...\n")
+    stats = run_playlist_command(
+        url=url,
+        limit=options["limit"],
+        language=options["language"],
+        generate_summary=options["summarize"],
+        generate_post_kits=options["post_kits"],
+    )
+    _print_playlist_results(stats)
+
+
+def main() -> int:
+    """TUI entry point. Returns exit code."""
+    print("=" * 60)
+    print("  yt-transcriber — TUI")
+    print("=" * 60)
+
+    while True:
+        try:
+            url = prompt_input_url()
+            input_type = detect_input_type(url)
+
+            if input_type == InputType.UNKNOWN:
+                print(f"\n[!] No reconozco '{url}' como YouTube/Drive/archivo local. Reintenta.\n")
+                continue
+
+            print(f"\nDetectado: {input_type.value}\n")
+
+            if input_type == InputType.YOUTUBE_PLAYLIST:
+                _run_playlist(url)
+            else:
+                _run_transcribe(url, input_type)
+
+            if not prompt_run_again():
+                print("Hasta luego.")
+                return 0
+
+        except KeyboardInterrupt:
+            print("\nCancelado por el usuario.")
+            return 130
+        except Exception as e:
+            print(f"\n[!] Error inesperado: {type(e).__name__}: {e}")
+            print("    Continuando con el loop. Ctrl+C para salir.")
+            continue
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
