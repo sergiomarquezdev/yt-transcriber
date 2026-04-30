@@ -1,8 +1,6 @@
 """Tests for yt_transcriber.tui module."""
 from pathlib import Path
 
-import pytest
-
 
 class TestDetectInputType:
     def test_local_existing_file(self, tmp_path: Path):
@@ -173,11 +171,11 @@ class TestSmoke:
 
     def test_prompt_functions_exist(self):
         from yt_transcriber.tui import (
-            prompt_transcribe_options,
-            prompt_playlist_options,
             prompt_input_url,
-            prompt_run_confirmation,
+            prompt_playlist_options,
             prompt_run_again,
+            prompt_run_confirmation,
+            prompt_transcribe_options,
         )
         # Just check they are callables; we don't invoke them (would block on stdin)
         assert callable(prompt_transcribe_options)

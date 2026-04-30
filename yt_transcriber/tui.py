@@ -291,10 +291,17 @@ def _print_transcribe_results(result: tuple) -> None:
 
 
 def _print_playlist_results(stats: dict) -> None:
-    """Pretty-print the dict returned by run_playlist_command."""
-    successful = stats.get("successful", 0)
-    failed = stats.get("failed", 0)
-    print(f"\nPlaylist procesada — successful={successful}, failed={failed}")
+    """Pretty-print the dict returned by run_playlist_command.
+
+    Note (V1): `run_playlist_command` returns binary flags (1/0), not real
+    per-video counters. To avoid misleading the user with `successful=1` on a
+    50-video playlist, we report only overall completion status here. Per-video
+    progress is visible in the live logs printed by `command_playlist`.
+    """
+    if stats.get("failed"):
+        print("\n[!] Playlist no completó correctamente. Revisa los logs arriba.")
+    else:
+        print("\nPlaylist procesada. (Detalle por video en los logs arriba.)")
 
 
 def _run_transcribe(url: str, input_type: InputType) -> None:
