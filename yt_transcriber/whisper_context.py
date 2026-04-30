@@ -1,10 +1,22 @@
 import gc
 import logging
+import os
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
 from core.settings import settings
+
+# Ensure NVIDIA CUDA DLLs (cublas, cudnn) installed via pip are discoverable.
+# On Windows, CTranslate2 loads them via the DLL search path at runtime.
+_site_packages = next((p for p in sys.path if p.endswith("site-packages")), None)
+if _site_packages:
+    for _lib in ("nvidia/cublas/bin", "nvidia/cudnn/bin"):
+        _dll_dir = os.path.join(_site_packages, _lib)
+        if os.path.isdir(_dll_dir):
+            os.add_dll_directory(_dll_dir)
+            os.environ["PATH"] = _dll_dir + os.pathsep + os.environ.get("PATH", "")
 
 logger = logging.getLogger(__name__)
 
