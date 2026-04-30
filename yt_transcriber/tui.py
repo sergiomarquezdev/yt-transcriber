@@ -12,6 +12,12 @@ from urllib.parse import parse_qs, urlparse
 
 import questionary
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
+
+console = Console()
+
 
 class InputType(str, Enum):
     YOUTUBE_VIDEO = "youtube_video"
@@ -132,7 +138,7 @@ def format_command_preview(subcommand: str, url: str, options: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tooltip strings (shown as `instruction=` below each prompt)
+# Tooltip strings (shown above each prompt via _hint)
 # ---------------------------------------------------------------------------
 _T_URL = "YouTube video URL, YouTube playlist URL, Google Drive URL, o ruta a archivo local"
 _T_LANGUAGE_TRANSCRIBE = "Auto-detect funciona pero es algo más lento. Códigos ISO 639-1: es, en, pt, fr, de, ..."
@@ -144,64 +150,122 @@ _T_VISUAL_EVIDENCE = "Extrae frames clave del video. Solo funciona con archivos 
 _T_LIMIT = "Vacío = playlist completa. Número entero = procesar últimos N videos."
 
 
+# ---------------------------------------------------------------------------
+# Presentation helpers (rich)
+# ---------------------------------------------------------------------------
+
+def _banner() -> None:
+    """Print the welcome banner once at TUI start."""
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold cyan]yt-transcriber[/bold cyan] — TUI",
+            border_style="cyan",
+            padding=(0, 2),
+        )
+    )
+
+
+def _section(title: str) -> None:
+    """Horizontal rule with a title — visual separator between phases."""
+    console.print()
+    console.print(Rule(f"[bold]{title}[/bold]", style="cyan"))
+    console.print()
+
+
+def _hint(text: str) -> None:
+    """Tooltip rendered above the next prompt, dim style with arrow prefix."""
+    console.print(f"  [dim]→ {text}[/dim]")
+
+
+def _success(text: str) -> None:
+    """Positive line (file generated, type detected, etc.)."""
+    console.print(f"  [green]✓[/green] {text}")
+
+
+def _skip(text: str) -> None:
+    """Item that does not apply / was skipped, neutral but visible."""
+    console.print(f"  [yellow]✗[/yellow] {text}")
+
+
+def _warn(text: str) -> None:
+    """Warning or recoverable issue."""
+    console.print(f"  [yellow][!] {text}[/yellow]")
+
+
+def _info_line(label: str, value: str) -> None:
+    """Bullet line for the pre-run summary."""
+    console.print(f"  • [bold]{label:<14}[/bold] {value}")
+
+
 def prompt_input_url() -> str:
     """Ask for the input URL/path. Returns stripped non-empty string or raises KeyboardInterrupt."""
     while True:
-        value = questionary.text(
-            "URL de YouTube/Drive o ruta local:",
-            instruction=f"({_T_URL})",
-        ).unsafe_ask()
+        _hint(_T_URL)
+        value = questionary.text("URL o ruta:").unsafe_ask()
         if value and value.strip():
+            console.print()
             return value.strip()
-        # else: empty -> re-prompt
 
 
 def prompt_transcribe_options(input_type: InputType) -> dict:
     """Ask all transcribe-flow questions. Returns dict with options (pre-validation)."""
-    # Language
+    total = 5
+
+    # [1/5] Language
+    _hint(_T_LANGUAGE_TRANSCRIBE)
     lang_choice = questionary.select(
-        "Idioma del audio:",
+        f"[1/{total}] Idioma del audio:",
         choices=["auto-detect", "es", "en", "otro (escribir código ISO)"],
         default="auto-detect",
-        instruction=f"({_T_LANGUAGE_TRANSCRIBE})",
     ).unsafe_ask()
+    console.print()
 
     if lang_choice == "auto-detect":
         language = None
     elif lang_choice.startswith("otro"):
-        language = questionary.text(
-            "Código de idioma (ej. pt, fr, de):",
-            instruction="ISO 639-1; vacío = auto-detect",
-        ).unsafe_ask()
-        language = language.strip() or None
+        _hint("ISO 639-1, ej. pt, fr, de. Vacío = auto-detect.")
+        language = questionary.text("Código de idioma:").unsafe_ask()
+        language = (language or "").strip() or None
+        console.print()
     else:
         language = lang_choice
 
+    # [2/5] Summarize
+    _hint(_T_SUMMARIZE)
     summarize = questionary.confirm(
-        "¿Generar resúmenes (EN + ES)?",
+        f"[2/{total}] ¿Generar resúmenes (EN + ES)?",
         default=False,
-        instruction=f"({_T_SUMMARIZE})",
     ).unsafe_ask()
+    console.print()
 
+    # [3/5] Post kits
+    _hint(_T_POST_KITS)
     post_kits = questionary.confirm(
-        "¿Generar post kits (LinkedIn + Twitter)?",
+        f"[3/{total}] ¿Generar post kits (LinkedIn + Twitter)?",
         default=False,
-        instruction=f"({_T_POST_KITS})",
     ).unsafe_ask()
+    console.print()
 
+    # [4/5] Segments
+    _hint(_T_SEGMENTS)
     segments = questionary.confirm(
-        "¿Sidecar de segmentos JSON?",
+        f"[4/{total}] ¿Sidecar de segmentos JSON?",
         default=False,
-        instruction=f"({_T_SEGMENTS})",
     ).unsafe_ask()
+    console.print()
 
+    # [5/5] Visual evidence (only if local)
     if input_type == InputType.LOCAL:
+        _hint(_T_VISUAL_EVIDENCE)
         visual_evidence = questionary.confirm(
-            "¿Extraer frames clave (visual evidence)?",
+            f"[5/{total}] ¿Extraer frames clave (visual evidence)?",
             default=False,
-            instruction=f"({_T_VISUAL_EVIDENCE})",
         ).unsafe_ask()
+        console.print()
     else:
+        _skip(f"[5/{total}] Visual evidence: omitido (no aplica para URLs)")
+        console.print()
         visual_evidence = False
 
     return {
@@ -215,53 +279,63 @@ def prompt_transcribe_options(input_type: InputType) -> dict:
 
 def prompt_playlist_options() -> dict:
     """Ask all playlist-flow questions. Returns dict with options (pre-validation)."""
+    total = 4
+
+    # [1/4] Limit
     while True:
+        _hint(_T_LIMIT)
         limit_raw = questionary.text(
-            "Cuántos videos (últimos N, vacío = todos):",
-            instruction=f"({_T_LIMIT})",
+            f"[1/{total}] Cuántos videos (vacío = todos):",
         ).unsafe_ask()
         limit_raw = (limit_raw or "").strip()
         if not limit_raw:
             limit: int | None = None
+            console.print()
             break
         try:
             n = int(limit_raw)
             if n <= 0:
-                print("  El número debe ser positivo.")
+                _warn("El número debe ser positivo.")
                 continue
             limit = n
+            console.print()
             break
         except ValueError:
-            print(f"  '{limit_raw}' no es un número entero.")
+            _warn(f"'{limit_raw}' no es un número entero.")
             continue
 
+    # [2/4] Language
+    _hint(_T_LANGUAGE_PLAYLIST)
     lang_choice = questionary.select(
-        "Idioma de auto-subs:",
+        f"[2/{total}] Idioma de auto-subs:",
         choices=["es", "en", "otro (escribir código ISO)"],
         default="es",
-        instruction=f"({_T_LANGUAGE_PLAYLIST})",
     ).unsafe_ask()
+    console.print()
 
     if lang_choice.startswith("otro"):
-        language = questionary.text(
-            "Código de idioma (ej. pt, fr, de):",
-            instruction="ISO 639-1",
-        ).unsafe_ask()
-        language = language.strip() or "es"
+        _hint("ISO 639-1, ej. pt, fr, de.")
+        language = questionary.text("Código de idioma:").unsafe_ask()
+        language = (language or "").strip() or "es"
+        console.print()
     else:
         language = lang_choice
 
+    # [3/4] Summarize
+    _hint(_T_SUMMARIZE)
     summarize = questionary.confirm(
-        "¿Generar resúmenes (EN + ES) por video?",
+        f"[3/{total}] ¿Generar resúmenes (EN + ES) por video?",
         default=False,
-        instruction=f"({_T_SUMMARIZE})",
     ).unsafe_ask()
+    console.print()
 
+    # [4/4] Post kits
+    _hint(_T_POST_KITS)
     post_kits = questionary.confirm(
-        "¿Generar post kits por video?",
+        f"[4/{total}] ¿Generar post kits por video?",
         default=False,
-        instruction=f"({_T_POST_KITS})",
     ).unsafe_ask()
+    console.print()
 
     return {
         "limit": limit,
@@ -271,12 +345,8 @@ def prompt_playlist_options() -> dict:
     }
 
 
-def prompt_run_confirmation(preview: str) -> bool:
-    """Show preview and ask for confirmation."""
-    print()
-    print("Comando equivalente:")
-    print(f"  {preview}")
-    print()
+def prompt_run_confirmation() -> bool:
+    """Ask for go/no-go. The pre-run summary is printed by the caller."""
     return questionary.confirm("¿Ejecutar?", default=True).unsafe_ask()
 
 
@@ -338,7 +408,7 @@ def _run_transcribe(url: str, input_type: InputType) -> None:
     options = apply_validation_rules(options)
     preview = format_command_preview("transcribe", url, options)
 
-    if not prompt_run_confirmation(preview):
+    if not prompt_run_confirmation():
         print("Cancelado.")
         return
 
@@ -363,7 +433,7 @@ def _run_playlist(url: str) -> None:
     options = apply_validation_rules(options)
     preview = format_command_preview("playlist", url, options)
 
-    if not prompt_run_confirmation(preview):
+    if not prompt_run_confirmation():
         print("Cancelado.")
         return
 
