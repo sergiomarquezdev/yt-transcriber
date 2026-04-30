@@ -9,6 +9,8 @@ YouTube CLI transcriber + summarizer. Python 3.12+, faster-whisper (CTranslate2)
 - **No LLM cache**: removed. Each call spawns a new CLI process. Acceptable latency for current use cases.
 - **Whisper context manager is mandatory**: always use `whisper_model_context()` from `whisper_context.py`. It handles CTranslate2 model load/unload + `gc.collect()`. Leaking models exhausts VRAM.
 - **Playlist mode skips Whisper entirely**: `command_playlist` downloads YouTube auto-generated subtitles via yt-dlp (`skip_download=True`), cleans SRT/VTT to plain text. No audio, no GPU, no model loading.
+- **Segment artifacts are additive and default-off**: `.txt` transcript is always canonical output; `_segments.json` is only emitted when `TRANSCRIPT_SEGMENTS_ENABLED=true` or `--segments` is passed.
+- **Visual evidence is V1 local-only**: `--visual-evidence` implies segments, but frame extraction runs only for local-file inputs; URL/Drive/playlist/cache paths skip frames.
 - **`noplaylist: True` is hardcoded** in `download_and_extract_audio()`. Playlist support lives in separate functions (`extract_playlist_entries`, `download_auto_subtitles`), not in the existing download path.
 
 ## Error Hierarchy

@@ -8,6 +8,7 @@ backward compatibility (tests patch functions in yt_transcriber.cli).
 """
 
 import logging
+import subprocess
 import sys
 import tempfile
 from datetime import datetime
@@ -31,6 +32,82 @@ if TYPE_CHECKING:
     from core.models import VideoSummary
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_segments_and_visual(
+    segments_override: bool | None,
+    visual_override: bool | None,
+) -> tuple[bool, bool]:
+    """Resolve effective segment/visual toggles with CLI/env precedence."""
+    visual_enabled = (
+        settings.VISUAL_EVIDENCE_ENABLED if visual_override is None else visual_override
+    )
+
+    if segments_override is not None:
+        segments_enabled = segments_override
+    elif visual_override is True:
+        # Visual flag implies segments when no explicit segments override was provided.
+        segments_enabled = True
+    else:
+        segments_enabled = settings.TRANSCRIPT_SEGMENTS_ENABLED
+
+    return segments_enabled, visual_enabled
+
+
+def _extract_visual_evidence(
+    video_path: Path,
+    segments: list[Any] | None,
+    output_filename_base: str,
+    output_dir: Path,
+    ffmpeg_location: str | None,
+) -> list[Path]:
+    """Extract one frame (midpoint) per eligible transcript segment."""
+    if not segments:
+        logger.debug("No segments available for visual evidence extraction")
+        return []
+
+    min_duration = settings.VISUAL_EVIDENCE_MIN_SEGMENT_SECONDS
+    ffmpeg_bin = ffmpeg_location or "ffmpeg"
+    extracted_paths: list[Path] = []
+
+    for idx, segment in enumerate(segments):
+        duration = float(segment.end) - float(segment.start)
+        if duration < min_duration:
+            logger.debug(
+                "Skipping visual evidence for segment %s: duration %.3fs < %.3fs",
+                idx,
+                duration,
+                min_duration,
+            )
+            continue
+
+        midpoint = float(segment.start) + (duration / 2.0)
+        frame_path = output_dir / f"{output_filename_base}_frame_{idx}.jpg"
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-ss",
+            f"{midpoint:.3f}",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(frame_path),
+        ]
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            extracted_paths.append(frame_path)
+        except Exception as e:
+            logger.warning(
+                "Could not extract visual evidence frame for segment %s (continuing): %s",
+                idx,
+                e,
+            )
+
+    return extracted_paths
 
 
 def generate_summary_outputs(
@@ -144,6 +221,8 @@ def process_transcription(
     generate_post_kits: bool = False,
     generate_summary: bool = False,
     reuse_transcripts: bool = False,
+    segments_override: bool | None = None,
+    visual_override: bool | None = None,
 ) -> tuple[Path | None, Path | None, Path | None, Path | None]:
     """Main logic to download, transcribe, and optionally summarize + post kits.
 
@@ -156,6 +235,8 @@ def process_transcription(
         generate_post_kits: Generate LinkedIn + Twitter posts (implies generate_summary)
         generate_summary: Generate EN + ES summaries (default: False, only transcript)
         reuse_transcripts: Reuse cached transcripts if available
+        segments_override: Optional CLI override for segments sidecar output
+        visual_override: Optional CLI override for visual evidence extraction
 
     Returns:
         Tuple of (transcript_path, summary_path_en, summary_path_es, post_kits_path)
@@ -164,6 +245,11 @@ def process_transcription(
     # Post kits requires summary, so enable it implicitly
     if generate_post_kits:
         generate_summary = True
+
+    segments_enabled, visual_enabled = _resolve_segments_and_visual(
+        segments_override=segments_override,
+        visual_override=visual_override,
+    )
     # Detect if input is a local file, Google Drive URL, or YouTube URL
     is_local_file = False
     local_file_path: Path | None = None
@@ -325,6 +411,28 @@ def process_transcription(
 
             logger.info(f"Transcript saved successfully to: {transcript_path}")
             print(f"\nTranscript saved to: {transcript_path}")
+
+            if segments_enabled:
+                segments_path = utils.derive_sibling_path(transcript_path, "_segments.json")
+                utils.save_segments_json(
+                    segments=transcription_result.segments,
+                    language=transcription_result.language,
+                    output_path=segments_path,
+                )
+
+            if visual_enabled:
+                if not is_local_file or not local_file_path:
+                    logger.warning(
+                        "Visual evidence is only supported for local files in V1; skipping extraction."
+                    )
+                else:
+                    _extract_visual_evidence(
+                        video_path=local_file_path,
+                        segments=transcription_result.segments,
+                        output_filename_base=output_filename_base,
+                        output_dir=settings.OUTPUT_TRANSCRIPTS_DIR,
+                        ffmpeg_location=ffmpeg_location,
+                    )
 
             # Cache transcript for future runs if enabled (only for YouTube URLs, not Drive or local files)
             try:

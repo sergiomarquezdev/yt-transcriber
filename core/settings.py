@@ -132,6 +132,18 @@ class AppSettings(BaseSettings):
         default=Path("output/analysis/transcripts_cache/"),
         description="Directorio para cachear transcripciones por video_id",
     )
+    TRANSCRIPT_SEGMENTS_ENABLED: bool = Field(
+        default=False,
+        description="Habilita sidecar JSON con segmentos timestamped de Whisper",
+    )
+    VISUAL_EVIDENCE_ENABLED: bool = Field(
+        default=False,
+        description="Habilita extracción de evidencia visual por segmento",
+    )
+    VISUAL_EVIDENCE_MIN_SEGMENT_SECONDS: float = Field(
+        default=1.0,
+        description="Duración mínima de segmento para considerar evidencia visual",
+    )
 
     # YouTube search configuration
     YT_SEARCH_TIMEOUT_SECONDS: int = Field(

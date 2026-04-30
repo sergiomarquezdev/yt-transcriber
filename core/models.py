@@ -22,6 +22,23 @@ class TimestampedSection:
 
 
 @dataclass
+class TranscriptSegment:
+    """Structured transcript segment with timing metadata."""
+
+    start: float
+    end: float
+    text: str
+
+    def to_dict(self) -> dict:
+        """Serialize segment for JSON sidecar output."""
+        return {
+            "start": self.start,
+            "end": self.end,
+            "text": self.text,
+        }
+
+
+@dataclass
 class VideoSummary:
     """Resumen completo de un video de YouTube generado con IA."""
 
@@ -113,4 +130,4 @@ class VideoSummary:
         }
 
 
-__all__ = ["TimestampedSection", "VideoSummary"]
+__all__ = ["TimestampedSection", "TranscriptSegment", "VideoSummary"]

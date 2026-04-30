@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from core.models import TranscriptSegment
 from core.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class TranscriptionResult:
 
     text: str
     language: str | None = None
+    segments: list[TranscriptSegment] | None = None
 
 
 class TranscriptionError(Exception):
@@ -61,9 +63,18 @@ def transcribe_audio_file(
         if language:
             transcribe_options["language"] = language
 
-        segments, info = model.transcribe(str(audio_path), **transcribe_options)
+        whisper_segments, info = model.transcribe(str(audio_path), **transcribe_options)
 
-        transcribed_text = " ".join(segment.text.strip() for segment in segments).strip()
+        materialized_segments = [
+            TranscriptSegment(
+                start=float(segment.start),
+                end=float(segment.end),
+                text=segment.text.strip(),
+            )
+            for segment in whisper_segments
+        ]
+
+        transcribed_text = " ".join(segment.text for segment in materialized_segments).strip()
         if not transcribed_text:
             logger.warning("Transcription returned empty text.")
 
@@ -72,7 +83,11 @@ def transcribe_audio_file(
         logger.info(
             f"Transcription complete. Detected language: {detected_language}. Length: {len(transcribed_text)} chars."
         )
-        return TranscriptionResult(text=transcribed_text, language=detected_language)
+        return TranscriptionResult(
+            text=transcribed_text,
+            language=detected_language,
+            segments=materialized_segments or None,
+        )
 
     except Exception as e:
         logger.error(

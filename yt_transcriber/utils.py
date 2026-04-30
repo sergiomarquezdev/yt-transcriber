@@ -5,8 +5,11 @@ from core.utils for backwards compatibility.
 """
 
 import logging
+import json
 import shutil
 from pathlib import Path
+
+from core.models import TranscriptSegment
 
 # Re-export core utilities for backwards compatibility
 from core.utils import ensure_dir_exists, normalize_title_for_filename
@@ -17,6 +20,8 @@ __all__ = [
     "normalize_title_for_filename",
     "ensure_dir_exists",
     "save_transcription_to_file",
+    "save_segments_json",
+    "derive_sibling_path",
     "cleanup_temp_files",
     "cleanup_temp_dir",
     "get_file_size_mb",
@@ -57,6 +62,38 @@ def save_transcription_to_file(
     except Exception as e:
         logger.error(
             f"Error al guardar la transcripción para '{output_filename_no_ext}' en '{output_dir}': {e}",
+            exc_info=True,
+        )
+        return None
+
+
+def derive_sibling_path(base_path: Path, suffix: str) -> Path:
+    """Derive sibling artifact path from a base file path."""
+    return base_path.with_name(f"{base_path.stem}{suffix}")
+
+
+def save_segments_json(
+    segments: list[TranscriptSegment] | None,
+    language: str | None,
+    output_path: Path,
+) -> Path | None:
+    """Persist transcript segments sidecar as JSON."""
+    try:
+        ensure_dir_exists(output_path.parent)
+        payload = {
+            "schema_version": 1,
+            "language": language,
+            "segments": [segment.to_dict() for segment in (segments or [])],
+        }
+        output_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(f"Segment sidecar saved: {output_path}")
+        return output_path
+    except Exception as e:
+        logger.error(
+            f"Error saving segments sidecar '{output_path}': {e}",
             exc_info=True,
         )
         return None

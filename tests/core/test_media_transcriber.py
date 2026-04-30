@@ -9,13 +9,16 @@ from core.media_transcriber import (
     TranscriptionResult,
     transcribe_audio_file,
 )
+from core.models import TranscriptSegment
 
 
 def _make_segments(*texts):
     """Helper to create mock segments from text strings."""
     segments = []
-    for text in texts:
+    for idx, text in enumerate(texts):
         seg = MagicMock()
+        seg.start = float(idx * 2)
+        seg.end = float((idx * 2) + 2)
         seg.text = text
         segments.append(seg)
     return segments
@@ -47,6 +50,16 @@ class TestTranscriptionResult:
 
         assert result.text == "Some text"
         assert result.language is None
+        assert result.segments is None
+
+    def test_creation_with_segments(self):
+        """Test TranscriptionResult with segments."""
+        segment = TranscriptSegment(start=0.0, end=1.0, text="Hi")
+        result = TranscriptionResult(text="Hi", language="en", segments=[segment])
+
+        assert result.segments is not None
+        assert len(result.segments) == 1
+        assert result.segments[0].text == "Hi"
 
 
 class TestTranscribeAudioFile:
@@ -215,3 +228,32 @@ class TestTranscribeAudioFile:
         )
 
         assert result.text == "Hello world. How are you? Fine thanks."
+
+    def test_segments_materialized(self, sample_audio_path, mock_whisper_model):
+        """Test whisper segments are mapped to TranscriptSegment objects."""
+        mock_whisper_model.transcribe.return_value = (
+            _make_segments("First", "Second"),
+            _make_info("es"),
+        )
+
+        result = transcribe_audio_file(
+            audio_path=sample_audio_path,
+            model=mock_whisper_model,
+        )
+
+        assert result.segments is not None
+        assert len(result.segments) == 2
+        assert result.segments[0] == TranscriptSegment(start=0.0, end=2.0, text="First")
+        assert result.segments[1] == TranscriptSegment(start=2.0, end=4.0, text="Second")
+
+    def test_segments_none_when_empty(self, sample_audio_path, mock_whisper_model):
+        """Test segments becomes None when Whisper returns no segments."""
+        mock_whisper_model.transcribe.return_value = ([], _make_info())
+
+        result = transcribe_audio_file(
+            audio_path=sample_audio_path,
+            model=mock_whisper_model,
+        )
+
+        assert result.text == ""
+        assert result.segments is None

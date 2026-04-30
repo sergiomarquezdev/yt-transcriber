@@ -16,6 +16,8 @@
   - Smart timestamps (inferred from content)
   - Action items (when applicable)
 - **Social Media Post Kits**: Auto-generate LinkedIn posts + Twitter threads
+- **Optional timestamped segments**: emit `_segments.json` sidecar with Whisper `start/end/text`
+- **Optional visual evidence (V1)**: extract midpoint frames per segment for local files
 - **Multiple input sources**: YouTube, Google Drive, local files
 - **Performance optimized**:
   - Automatic memory cleanup (no memory leaks)
@@ -87,6 +89,12 @@ yt-transcriber transcribe --url "URL" --language es
 
 # Local file
 yt-transcriber transcribe --url "path/to/video.mp4" --summarize
+
+# Emit timestamped segments sidecar JSON
+yt-transcriber transcribe --url "URL_OR_LOCAL_FILE" --segments
+
+# Extract visual evidence frames (implies --segments, local files only in V1)
+yt-transcriber transcribe --url "path/to/video.mp4" --visual-evidence
 ```
 
 ### CLI Options
@@ -97,6 +105,8 @@ yt-transcriber transcribe --url "path/to/video.mp4" --summarize
 | `--language` | `-l` | Language code (`en`, `es`) - auto-detect if omitted |
 | `--summarize` | | Generate AI summaries (EN + ES) |
 | `--post-kits` | | Generate LinkedIn + Twitter content (implies --summarize) |
+| `--segments` / `--no-segments` | | Enable/disable `_segments.json` sidecar (CLI override; env fallback when omitted) |
+| `--visual-evidence` / `--no-visual-evidence` | | Enable/disable frame extraction per segment (local files only in V1; visual implies segments) |
 | `--ffmpeg-location` | | Custom FFmpeg path |
 
 ## Output
@@ -106,7 +116,9 @@ Files are saved to `output/`:
 ```
 output/
 ├── transcripts/
-│   └── {title}_vid_{id}.txt          # Raw transcription
+│   ├── {title}_vid_{id}.txt             # Raw transcription (always)
+│   ├── {title}_vid_{id}_segments.json   # Optional: segments sidecar
+│   └── {title}_vid_{id}_frame_{idx}.jpg # Optional: visual evidence frames
 └── summaries/
     ├── {title}_vid_{id}_summary_EN.md  # English summary
     ├── {title}_vid_{id}_summary_ES.md  # Spanish summary
@@ -144,6 +156,13 @@ WHISPER_DEVICE=cuda        # cuda or cpu
 TEMP_DOWNLOAD_DIR=temp_files/
 OUTPUT_TRANSCRIPTS_DIR=output/transcripts/
 SUMMARY_OUTPUT_DIR=output/summaries/
+
+# Optional transcript segments sidecar (default off)
+TRANSCRIPT_SEGMENTS_ENABLED=false
+
+# Optional visual evidence extraction (default off, local files only in V1)
+VISUAL_EVIDENCE_ENABLED=false
+VISUAL_EVIDENCE_MIN_SEGMENT_SECONDS=1.0
 
 # Logging
 LOG_LEVEL=INFO

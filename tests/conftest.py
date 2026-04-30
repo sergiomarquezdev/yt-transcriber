@@ -71,6 +71,8 @@ def mock_whisper_model():
     """Create a mock faster-whisper model."""
     model = MagicMock()
     mock_segment = MagicMock()
+    mock_segment.start = 0.0
+    mock_segment.end = 2.5
     mock_segment.text = "This is a sample transcription."
     mock_info = MagicMock()
     mock_info.language = "en"

@@ -1,9 +1,14 @@
 """Tests for yt_transcriber.utils module."""
 
+import json
+
+from core.models import TranscriptSegment
 from yt_transcriber.utils import (
     cleanup_temp_dir,
     cleanup_temp_files,
+    derive_sibling_path,
     get_file_size_mb,
+    save_segments_json,
     save_transcription_to_file,
 )
 
@@ -107,6 +112,68 @@ class TestSaveTranscriptionToFile:
         content = result.read_text(encoding="utf-8")
         assert "日本語" in content
         assert "Español" in content
+
+
+class TestSaveSegmentsJson:
+    """Tests for save_segments_json function."""
+
+    def test_basic_save(self, temp_output_dir):
+        """Test basic JSON sidecar save."""
+        output_path = temp_output_dir / "video_segments.json"
+        segments = [TranscriptSegment(start=0.0, end=2.5, text="Hola mundo")]
+
+        result = save_segments_json(segments=segments, language="es", output_path=output_path)
+
+        assert result is not None
+        assert result.exists()
+
+    def test_schema_version(self, temp_output_dir):
+        """Test schema_version field is written."""
+        output_path = temp_output_dir / "schema_segments.json"
+
+        save_segments_json(
+            segments=[TranscriptSegment(start=1.0, end=2.0, text="Test")],
+            language="en",
+            output_path=output_path,
+        )
+
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        assert data["schema_version"] == 1
+
+    def test_language_field(self, temp_output_dir):
+        """Test language field is preserved in payload."""
+        output_path = temp_output_dir / "language_segments.json"
+
+        save_segments_json(
+            segments=[TranscriptSegment(start=0.0, end=1.0, text="Hi")],
+            language="en",
+            output_path=output_path,
+        )
+
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        assert data["language"] == "en"
+        assert data["segments"][0]["text"] == "Hi"
+
+
+class TestDeriveSiblingPath:
+    """Tests for derive_sibling_path helper."""
+
+    def test_replaces_txt_suffix(self, temp_output_dir):
+        """Test deriving _segments.json from .txt transcript path."""
+        transcript_path = temp_output_dir / "my_video.txt"
+
+        sibling = derive_sibling_path(transcript_path, "_segments.json")
+
+        assert sibling.name == "my_video_segments.json"
+        assert sibling.parent == transcript_path.parent
+
+    def test_preserves_other_suffixes(self, temp_output_dir):
+        """Test non-txt suffixes still keep base stem behavior."""
+        base_path = temp_output_dir / "my_video.md"
+
+        sibling = derive_sibling_path(base_path, "_segments.json")
+
+        assert sibling.name == "my_video_segments.json"
 
 
 class TestCleanupTempFiles:
