@@ -9,6 +9,8 @@ from __future__ import annotations
 from enum import Enum
 from pathlib import Path
 
+import questionary
+
 
 class InputType(str, Enum):
     YOUTUBE_VIDEO = "youtube_video"
@@ -115,3 +117,157 @@ def format_command_preview(subcommand: str, url: str, options: dict) -> str:
             parts.append("--visual-evidence")
 
     return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Tooltip strings (shown as `instruction=` below each prompt)
+# ---------------------------------------------------------------------------
+_T_URL = "YouTube video URL, YouTube playlist URL, Google Drive URL, o ruta a archivo local"
+_T_LANGUAGE_TRANSCRIBE = "Auto-detect funciona pero es algo más lento. Códigos ISO 639-1: es, en, pt, fr, de, ..."
+_T_LANGUAGE_PLAYLIST = "Idioma de los subtítulos automáticos a descargar de YouTube"
+_T_SUMMARIZE = "Genera resúmenes EN + ES con Claude (incrementa tiempo y consume cuota Claude)"
+_T_POST_KITS = "LinkedIn post + Twitter thread. Activa --summarize automáticamente."
+_T_SEGMENTS = "Genera _segments.json con timestamps por segmento (útil para procesar después)"
+_T_VISUAL_EVIDENCE = "Extrae frames clave del video. Solo funciona con archivos locales. Activa --segments."
+_T_LIMIT = "Vacío = playlist completa. Número entero = procesar últimos N videos."
+
+
+def prompt_input_url() -> str:
+    """Ask for the input URL/path. Returns stripped non-empty string or raises KeyboardInterrupt."""
+    while True:
+        value = questionary.text(
+            "URL de YouTube/Drive o ruta local:",
+            instruction=f"({_T_URL})",
+        ).unsafe_ask()
+        if value and value.strip():
+            return value.strip()
+        # else: empty -> re-prompt
+
+
+def prompt_transcribe_options(input_type: InputType) -> dict:
+    """Ask all transcribe-flow questions. Returns dict with options (pre-validation)."""
+    # Language
+    lang_choice = questionary.select(
+        "Idioma del audio:",
+        choices=["auto-detect", "es", "en", "otro (escribir código ISO)"],
+        default="auto-detect",
+        instruction=f"({_T_LANGUAGE_TRANSCRIBE})",
+    ).unsafe_ask()
+
+    if lang_choice == "auto-detect":
+        language = None
+    elif lang_choice.startswith("otro"):
+        language = questionary.text(
+            "Código de idioma (ej. pt, fr, de):",
+            instruction="ISO 639-1; vacío = auto-detect",
+        ).unsafe_ask()
+        language = language.strip() or None
+    else:
+        language = lang_choice
+
+    summarize = questionary.confirm(
+        "¿Generar resúmenes (EN + ES)?",
+        default=False,
+        instruction=f"({_T_SUMMARIZE})",
+    ).unsafe_ask()
+
+    post_kits = questionary.confirm(
+        "¿Generar post kits (LinkedIn + Twitter)?",
+        default=False,
+        instruction=f"({_T_POST_KITS})",
+    ).unsafe_ask()
+
+    segments = questionary.confirm(
+        "¿Sidecar de segmentos JSON?",
+        default=False,
+        instruction=f"({_T_SEGMENTS})",
+    ).unsafe_ask()
+
+    if input_type == InputType.LOCAL:
+        visual_evidence = questionary.confirm(
+            "¿Extraer frames clave (visual evidence)?",
+            default=False,
+            instruction=f"({_T_VISUAL_EVIDENCE})",
+        ).unsafe_ask()
+    else:
+        visual_evidence = False
+
+    return {
+        "language": language,
+        "summarize": summarize,
+        "post_kits": post_kits,
+        "segments": segments,
+        "visual_evidence": visual_evidence,
+    }
+
+
+def prompt_playlist_options() -> dict:
+    """Ask all playlist-flow questions. Returns dict with options (pre-validation)."""
+    while True:
+        limit_raw = questionary.text(
+            "Cuántos videos (últimos N, vacío = todos):",
+            instruction=f"({_T_LIMIT})",
+        ).unsafe_ask()
+        limit_raw = (limit_raw or "").strip()
+        if not limit_raw:
+            limit: int | None = None
+            break
+        try:
+            n = int(limit_raw)
+            if n <= 0:
+                print("  El número debe ser positivo.")
+                continue
+            limit = n
+            break
+        except ValueError:
+            print(f"  '{limit_raw}' no es un número entero.")
+            continue
+
+    lang_choice = questionary.select(
+        "Idioma de auto-subs:",
+        choices=["es", "en", "otro (escribir código ISO)"],
+        default="es",
+        instruction=f"({_T_LANGUAGE_PLAYLIST})",
+    ).unsafe_ask()
+
+    if lang_choice.startswith("otro"):
+        language = questionary.text(
+            "Código de idioma (ej. pt, fr, de):",
+            instruction="ISO 639-1",
+        ).unsafe_ask()
+        language = language.strip() or "es"
+    else:
+        language = lang_choice
+
+    summarize = questionary.confirm(
+        "¿Generar resúmenes (EN + ES) por video?",
+        default=False,
+        instruction=f"({_T_SUMMARIZE})",
+    ).unsafe_ask()
+
+    post_kits = questionary.confirm(
+        "¿Generar post kits por video?",
+        default=False,
+        instruction=f"({_T_POST_KITS})",
+    ).unsafe_ask()
+
+    return {
+        "limit": limit,
+        "language": language,
+        "summarize": summarize,
+        "post_kits": post_kits,
+    }
+
+
+def prompt_run_confirmation(preview: str) -> bool:
+    """Show preview and ask for confirmation."""
+    print()
+    print("Comando equivalente:")
+    print(f"  {preview}")
+    print()
+    return questionary.confirm("¿Ejecutar?", default=True).unsafe_ask()
+
+
+def prompt_run_again() -> bool:
+    """Ask if the user wants another run. Default Yes for chained workflows."""
+    return questionary.confirm("¿Otra transcripción?", default=True).unsafe_ask()

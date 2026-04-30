@@ -165,3 +165,23 @@ class TestFormatCommandPreview:
         assert "--limit 5" in out
         assert "--language en" in out
         assert "--summarize" in out
+
+
+class TestSmoke:
+    def test_module_imports(self):
+        import yt_transcriber.tui  # noqa: F401
+
+    def test_prompt_functions_exist(self):
+        from yt_transcriber.tui import (
+            prompt_transcribe_options,
+            prompt_playlist_options,
+            prompt_input_url,
+            prompt_run_confirmation,
+            prompt_run_again,
+        )
+        # Just check they are callables; we don't invoke them (would block on stdin)
+        assert callable(prompt_transcribe_options)
+        assert callable(prompt_playlist_options)
+        assert callable(prompt_input_url)
+        assert callable(prompt_run_confirmation)
+        assert callable(prompt_run_again)
