@@ -42,7 +42,7 @@ def get_youtube_title(youtube_url: str) -> str:
             info = ydl.extract_info(youtube_url, download=False)
             if info is None:
                 return "untitled"
-            title: str = info.get("title", "untitled")
+            title = info.get("title") or "untitled"
             return title
     except Exception as e:
         logger.error(f"No se pudo extraer el titulo automaticamente: {e}")
@@ -58,6 +58,8 @@ def process_transcription(
     generate_post_kits: bool = False,
     generate_summary: bool = False,
     reuse_transcripts: bool = False,
+    segments_override: bool | None = None,
+    visual_override: bool | None = None,
 ) -> tuple[Path | None, Path | None, Path | None, Path | None]:
     """Delegate transcription pipeline to the service implementation."""
     from yt_transcriber import service as _service
@@ -71,6 +73,8 @@ def process_transcription(
         generate_post_kits=generate_post_kits,
         generate_summary=generate_summary,
         reuse_transcripts=reuse_transcripts,
+        segments_override=segments_override,
+        visual_override=visual_override,
     )
 
 
@@ -151,6 +155,8 @@ def command_transcribe(args):
             ffmpeg_location=args.ffmpeg_location,
             generate_post_kits=args.post_kits,
             generate_summary=generate_summary,
+            segments_override=args.segments_override,
+            visual_override=args.visual_override,
         )
 
     if transcript_path:
@@ -176,6 +182,8 @@ def run_transcribe_command(
     generate_post_kits: bool = False,
     generate_summary: bool = False,
     reuse_transcripts: bool = False,
+    segments_override: bool | None = None,
+    visual_override: bool | None = None,
 ) -> tuple[str | None, str | None, str | None, str | None]:
     """Wrapper function for transcription to be called programmatically.
 
@@ -186,6 +194,8 @@ def run_transcribe_command(
         generate_post_kits: Generate LinkedIn + Twitter posts (implies generate_summary)
         generate_summary: Generate EN + ES summaries
         reuse_transcripts: Reuse cached transcripts
+        segments_override: Optional CLI-style override for segment sidecar output
+        visual_override: Optional CLI-style override for visual evidence extraction
 
     Returns:
         Tuple of (transcript_path, summary_en_path, summary_es_path, post_kits_path)
@@ -231,6 +241,8 @@ def run_transcribe_command(
                     generate_post_kits=generate_post_kits,
                     generate_summary=generate_summary,
                     reuse_transcripts=reuse_transcripts,
+                    segments_override=segments_override,
+                    visual_override=visual_override,
                 )
             )
     except Exception as e:
@@ -393,6 +405,36 @@ def main():
         help="Generar LinkedIn post y Twitter thread (implica --summarize).",
     )
 
+    segments_group = transcribe_parser.add_mutually_exclusive_group()
+    segments_group.add_argument(
+        "--segments",
+        dest="segments_override",
+        action="store_true",
+        help="Habilitar sidecar JSON de segmentos timestamped.",
+    )
+    segments_group.add_argument(
+        "--no-segments",
+        dest="segments_override",
+        action="store_false",
+        help="Deshabilitar sidecar JSON de segmentos timestamped.",
+    )
+
+    visual_group = transcribe_parser.add_mutually_exclusive_group()
+    visual_group.add_argument(
+        "--visual-evidence",
+        dest="visual_override",
+        action="store_true",
+        help="Habilitar extracción de frames por segmento (solo archivos locales en V1).",
+    )
+    visual_group.add_argument(
+        "--no-visual-evidence",
+        dest="visual_override",
+        action="store_false",
+        help="Deshabilitar extracción de evidencia visual por segmento.",
+    )
+
+    transcribe_parser.set_defaults(segments_override=None, visual_override=None)
+
     # Subcommand: playlist
     playlist_parser = subparsers.add_parser(
         "playlist",
@@ -439,6 +481,50 @@ def main():
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def run_playlist_command(
+    url: str,
+    limit: int | None = None,
+    language: str = "es",
+    generate_summary: bool = False,
+    generate_post_kits: bool = False,
+) -> dict:
+    """Programmatic API mirror of command_playlist.
+
+    Builds a Namespace and invokes command_playlist while catching SystemExit and
+    Exception so callers (e.g. the TUI) can handle errors without dying.
+
+    Returns:
+        dict with keys: successful (int), failed (int), files (list[str]).
+    """
+    args = argparse.Namespace(
+        url=url,
+        limit=limit,
+        language=language,
+        summarize=generate_summary,
+        post_kits=generate_post_kits,
+    )
+
+    stats: dict = {"successful": 0, "failed": 0, "files": []}
+
+    try:
+        command_playlist(args)
+        # command_playlist prints its own per-video progress; we record overall success.
+        # If it returns normally, we trust it ran without fatal errors. Per-video failures
+        # are visible in stdout but not retrievable here without refactoring command_playlist.
+        # For V1 the dict is mostly a "did it finish" signal.
+        stats["successful"] = 1
+    except SystemExit as e:
+        if e.code == 0:
+            stats["successful"] = 1
+        else:
+            stats["failed"] = 1
+    except Exception as e:
+        stats["failed"] = 1
+        print(f"[run_playlist_command] error: {e}", file=sys.stderr)
+
+    return stats
 
 
 if __name__ == "__main__":

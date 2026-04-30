@@ -130,3 +130,125 @@ class TestCommandPlaylist:
         with pytest.raises(SystemExit) as exc_info:
             command_playlist(args)
         assert exc_info.value.code == 1
+
+
+class TestTranscribeFlags:
+    """Focused tests for transcribe CLI flags wiring."""
+
+    def test_transcribe_segments_flag(self):
+        """--segments is parsed and forwarded as override=True."""
+        from yt_transcriber.cli import main
+
+        argv = [
+            "yt-transcriber",
+            "transcribe",
+            "--url",
+            "https://www.youtube.com/watch?v=abcdefghijk",
+            "--segments",
+        ]
+
+        with patch("sys.argv", argv):
+            with patch("yt_transcriber.cli.command_transcribe") as mock_command:
+                main()
+
+        args = mock_command.call_args.args[0]
+        assert args.segments_override is True
+
+    def test_transcribe_visual_evidence_flag(self):
+        """--visual-evidence is parsed and forwarded as override=True."""
+        from yt_transcriber.cli import main
+
+        argv = [
+            "yt-transcriber",
+            "transcribe",
+            "--url",
+            "https://www.youtube.com/watch?v=abcdefghijk",
+            "--visual-evidence",
+        ]
+
+        with patch("sys.argv", argv):
+            with patch("yt_transcriber.cli.command_transcribe") as mock_command:
+                main()
+
+        args = mock_command.call_args.args[0]
+        assert args.visual_override is True
+
+    def test_visual_implies_segments_override(self):
+        """Visual override flows to service so implication is resolved centrally."""
+        from yt_transcriber.cli import run_transcribe_command
+
+        with patch("yt_transcriber.cli.get_youtube_title", return_value="Test"):
+            with patch("yt_transcriber.cli.whisper_model_context") as mock_context:
+                with patch("yt_transcriber.cli.process_transcription") as mock_process:
+                    mock_context.return_value.__enter__.return_value = MagicMock()
+                    mock_process.return_value = (None, None, None, None)
+
+                    run_transcribe_command(
+                        url="https://www.youtube.com/watch?v=abcdefghijk",
+                        visual_override=True,
+                    )
+
+                    assert mock_process.call_args.kwargs["visual_override"] is True
+                    assert mock_process.call_args.kwargs["segments_override"] is None
+
+
+class TestRunPlaylistCommand:
+    """Tests for run_playlist_command (programmatic wrapper, no sys.exit)."""
+
+    @patch("yt_transcriber.cli.command_playlist")
+    def test_returns_dict_with_stats(self, mock_command_playlist, tmp_path):
+        from yt_transcriber.cli import run_playlist_command
+
+        # command_playlist is invoked with a Namespace built internally; we don't care
+        # about its side effects in this unit test, only that the wrapper returns
+        # a dict with the expected keys without sys.exit.
+        mock_command_playlist.return_value = None
+
+        result = run_playlist_command(
+            url="https://www.youtube.com/playlist?list=PLxxx",
+            limit=3,
+            language="es",
+            generate_summary=False,
+            generate_post_kits=False,
+        )
+
+        assert isinstance(result, dict)
+        assert "successful" in result
+        assert "failed" in result
+        assert "files" in result
+        assert isinstance(result["files"], list)
+
+    @patch("yt_transcriber.cli.command_playlist")
+    def test_does_not_call_sys_exit_on_systemexit(self, mock_command_playlist):
+        """If command_playlist raises SystemExit, the wrapper catches it and reports failure."""
+        from yt_transcriber.cli import run_playlist_command
+
+        mock_command_playlist.side_effect = SystemExit(1)
+
+        result = run_playlist_command(
+            url="https://www.youtube.com/playlist?list=PLxxx",
+            limit=None,
+            language="es",
+            generate_summary=False,
+            generate_post_kits=False,
+        )
+
+        assert result["failed"] >= 1
+        assert result["successful"] == 0
+
+    @patch("yt_transcriber.cli.command_playlist")
+    def test_does_not_call_sys_exit_on_exception(self, mock_command_playlist):
+        """If command_playlist raises a generic Exception, wrapper catches it."""
+        from yt_transcriber.cli import run_playlist_command
+
+        mock_command_playlist.side_effect = RuntimeError("boom")
+
+        result = run_playlist_command(
+            url="https://www.youtube.com/playlist?list=PLxxx",
+            limit=None,
+            language="es",
+            generate_summary=False,
+            generate_post_kits=False,
+        )
+
+        assert result["failed"] >= 1
