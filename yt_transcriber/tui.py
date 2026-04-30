@@ -359,24 +359,23 @@ def _print_transcribe_results(result: tuple) -> None:
     """Pretty-print the tuple returned by run_transcribe_command."""
     transcript_path, summary_en, summary_es, post_kits = result
     if not any(result):
-        print("\n[!] No se generó ningún archivo. Revisa los logs.")
+        _warn("No se generó ningún archivo. Revisa los logs arriba.")
         return
-    print("\nArchivos generados:")
     if transcript_path:
-        print(f"  - transcript: {transcript_path}")
+        _success(f"Transcript:    {transcript_path}")
     if summary_en:
-        print(f"  - summary EN: {summary_en}")
+        _success(f"Summary EN:    {summary_en}")
     if summary_es:
-        print(f"  - summary ES: {summary_es}")
+        _success(f"Summary ES:    {summary_es}")
     if post_kits:
-        print(f"  - post kits:  {post_kits}")
+        _success(f"Post kits:     {post_kits}")
 
 
 def _print_playlist_results(stats: dict) -> None:
     """Pretty-print the dict returned by run_playlist_command.
 
-    Real per-video counters (since the playlist refactor): `successful`, `failed`,
-    `files`, optional `error` for unexpected exceptions.
+    Real per-video counters (after the playlist refactor): `successful`, `failed`,
+    `files`, optional `error`.
     """
     successful = stats.get("successful", 0)
     failed = stats.get("failed", 0)
@@ -385,34 +384,52 @@ def _print_playlist_results(stats: dict) -> None:
 
     total = successful + failed
     if total == 0 and not error:
-        print("\n[i] Playlist vacía o sin trabajo nuevo.")
+        _skip("Playlist vacía o sin trabajo nuevo.")
         return
 
-    print(f"\nPlaylist procesada — {successful}/{total} videos con éxito.")
+    _success(f"Playlist procesada — {successful}/{total} videos con éxito.")
     if failed:
-        print(f"  [!] {failed} fallos. Revisa los logs arriba.")
+        _warn(f"{failed} fallos. Revisa los logs arriba.")
     if error:
-        print(f"  [!] Error fatal: {error}")
+        _warn(f"Error fatal: {error}")
     if files:
-        print(f"\nArchivos generados ({len(files)}):")
+        console.print()
+        console.print(f"  [bold]Archivos generados ({len(files)}):[/bold]")
         for f in files[:10]:
-            print(f"  - {f}")
+            _success(str(f))
         if len(files) > 10:
-            print(f"  ... y {len(files) - 10} más")
+            console.print(f"  [dim]... y {len(files) - 10} más[/dim]")
 
 
 def _run_transcribe(url: str, input_type: InputType) -> None:
     from yt_transcriber.cli import run_transcribe_command
 
+    _section("Opciones de transcripción")
     options = prompt_transcribe_options(input_type)
     options = apply_validation_rules(options)
-    preview = format_command_preview("transcribe", url, options)
+
+    _section("Resumen")
+    _info_line("Subcomando:", "transcribe")
+    _info_line("URL:", url)
+    _info_line("Idioma:", options["language"] or "auto-detect")
+    _info_line("Summarize:", "sí" if options["summarize"] else "no")
+    _info_line("Post kits:", "sí" if options["post_kits"] else "no")
+    _info_line("Segments:", "sí" if options["segments"] else "no")
+    visual_label = (
+        "sí" if options["visual_evidence"]
+        else ("no" if input_type == InputType.LOCAL else "n/a (URL)")
+    )
+    _info_line("Visual:", visual_label)
+    console.print()
+    console.print("  [bold]CLI equivalente:[/bold]")
+    console.print(f"    [dim]{format_command_preview('transcribe', url, options)}[/dim]")
+    console.print()
 
     if not prompt_run_confirmation():
-        print("Cancelado.")
+        _warn("Cancelado.")
         return
 
-    print("\nEjecutando...\n")
+    _section("Ejecutando")
     result = run_transcribe_command(
         url=url,
         language=options["language"],
@@ -423,21 +440,35 @@ def _run_transcribe(url: str, input_type: InputType) -> None:
         segments_override=options["segments"],
         visual_override=options["visual_evidence"],
     )
+
+    _section("Resultado")
     _print_transcribe_results(result)
 
 
 def _run_playlist(url: str) -> None:
     from yt_transcriber.cli import run_playlist_command
 
+    _section("Opciones de playlist")
     options = prompt_playlist_options()
     options = apply_validation_rules(options)
-    preview = format_command_preview("playlist", url, options)
+
+    _section("Resumen")
+    _info_line("Subcomando:", "playlist")
+    _info_line("URL:", url)
+    _info_line("Límite:", str(options["limit"]) if options["limit"] is not None else "todos")
+    _info_line("Idioma:", options["language"])
+    _info_line("Summarize:", "sí" if options["summarize"] else "no")
+    _info_line("Post kits:", "sí" if options["post_kits"] else "no")
+    console.print()
+    console.print("  [bold]CLI equivalente:[/bold]")
+    console.print(f"    [dim]{format_command_preview('playlist', url, options)}[/dim]")
+    console.print()
 
     if not prompt_run_confirmation():
-        print("Cancelado.")
+        _warn("Cancelado.")
         return
 
-    print("\nEjecutando...\n")
+    _section("Ejecutando")
     stats = run_playlist_command(
         url=url,
         limit=options["limit"],
@@ -445,41 +476,53 @@ def _run_playlist(url: str) -> None:
         generate_summary=options["summarize"],
         generate_post_kits=options["post_kits"],
     )
+
+    _section("Resultado")
     _print_playlist_results(stats)
+
+
+_INPUT_TYPE_LABELS = {
+    InputType.YOUTUBE_VIDEO: "YouTube video",
+    InputType.YOUTUBE_PLAYLIST: "YouTube playlist",
+    InputType.DRIVE: "Google Drive",
+    InputType.LOCAL: "Archivo local",
+}
 
 
 def main() -> int:
     """TUI entry point. Returns exit code."""
-    print("=" * 60)
-    print("  yt-transcriber — TUI")
-    print("=" * 60)
+    _banner()
 
     while True:
         try:
+            _section("Input")
             url = prompt_input_url()
             input_type = detect_input_type(url)
 
             if input_type == InputType.UNKNOWN:
-                print(f"\n[!] No reconozco '{url}' como YouTube/Drive/archivo local. Reintenta.\n")
+                _warn(f"No reconozco '{url}' como YouTube/Drive/archivo local. Reintenta.")
                 continue
 
-            print(f"\nDetectado: {input_type.value}\n")
+            type_label = _INPUT_TYPE_LABELS.get(input_type, input_type.value)
+            _success(f"Detectado: {type_label}")
 
             if input_type == InputType.YOUTUBE_PLAYLIST:
                 _run_playlist(url)
             else:
                 _run_transcribe(url, input_type)
 
+            console.print()
             if not prompt_run_again():
-                print("Hasta luego.")
+                console.print("[dim]Hasta luego.[/dim]")
                 return 0
 
         except KeyboardInterrupt:
-            print("\nCancelado por el usuario.")
+            console.print()
+            _warn("Cancelado por el usuario.")
             return 130
         except Exception as e:
-            print(f"\n[!] Error inesperado: {type(e).__name__}: {e}")
-            print("    Continuando con el loop. Ctrl+C para salir.")
+            _warn(f"Error inesperado: {type(e).__name__}: {e}")
+            console.print("[dim]    Continuando con el loop. Ctrl+C para salir.[/dim]")
             continue
 
 
