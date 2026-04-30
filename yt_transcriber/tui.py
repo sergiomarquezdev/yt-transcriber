@@ -76,3 +76,42 @@ def apply_validation_rules(options: dict) -> dict:
     if result.get("visual_evidence"):
         result["segments"] = True
     return result
+
+
+def format_command_preview(subcommand: str, url: str, options: dict) -> str:
+    """Build a human-readable equivalent CLI command for the user to confirm.
+
+    The returned string is informational (used in a 'about to run' prompt). It is
+    NOT executed; the TUI calls the programmatic wrappers directly.
+
+    Args:
+        subcommand: "transcribe" or "playlist".
+        url: the input URL or path.
+        options: dict of resolved options (post-validation).
+
+    Returns:
+        A string like: `yt-transcriber transcribe -u "<url>" --language es --summarize`.
+    """
+    parts = ["yt-transcriber", subcommand, "-u", f'"{url}"']
+
+    lang = options.get("language")
+    if lang:
+        parts.extend(["--language", lang])
+
+    if subcommand == "playlist":
+        limit = options.get("limit")
+        if limit is not None:
+            parts.extend(["--limit", str(limit)])
+
+    if options.get("summarize"):
+        parts.append("--summarize")
+    if options.get("post_kits"):
+        parts.append("--post-kits")
+
+    if subcommand == "transcribe":
+        if options.get("segments"):
+            parts.append("--segments")
+        if options.get("visual_evidence"):
+            parts.append("--visual-evidence")
+
+    return " ".join(parts)

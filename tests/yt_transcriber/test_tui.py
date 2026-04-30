@@ -113,3 +113,55 @@ class TestApplyValidationRules:
         opts = {"summarize": False, "post_kits": True}
         result = apply_validation_rules(opts)
         assert result["summarize"] is True
+
+
+class TestFormatCommandPreview:
+    def test_transcribe_minimal(self):
+        from yt_transcriber.tui import format_command_preview
+
+        opts = {"language": None, "summarize": False, "post_kits": False, "segments": False, "visual_evidence": False}
+        out = format_command_preview("transcribe", "https://youtu.be/abc", opts)
+
+        assert "transcribe" in out
+        assert "https://youtu.be/abc" in out
+        assert "--summarize" not in out
+        assert "--language" not in out
+
+    def test_transcribe_with_language_and_summarize(self):
+        from yt_transcriber.tui import format_command_preview
+
+        opts = {"language": "es", "summarize": True, "post_kits": False, "segments": False, "visual_evidence": False}
+        out = format_command_preview("transcribe", "https://youtu.be/abc", opts)
+
+        assert "--language es" in out
+        assert "--summarize" in out
+
+    def test_transcribe_with_post_kits_and_visual(self):
+        from yt_transcriber.tui import format_command_preview
+
+        opts = {"language": "en", "summarize": True, "post_kits": True, "segments": True, "visual_evidence": True}
+        out = format_command_preview("transcribe", "/local/video.mp4", opts)
+
+        assert "--post-kits" in out
+        assert "--visual-evidence" in out
+        assert "--segments" in out
+        assert "/local/video.mp4" in out
+
+    def test_playlist_minimal(self):
+        from yt_transcriber.tui import format_command_preview
+
+        opts = {"limit": None, "language": "es", "summarize": False, "post_kits": False}
+        out = format_command_preview("playlist", "https://www.youtube.com/playlist?list=PLxxx", opts)
+
+        assert "playlist" in out
+        assert "--limit" not in out
+
+    def test_playlist_with_limit(self):
+        from yt_transcriber.tui import format_command_preview
+
+        opts = {"limit": 5, "language": "en", "summarize": True, "post_kits": False}
+        out = format_command_preview("playlist", "https://www.youtube.com/playlist?list=PLxxx", opts)
+
+        assert "--limit 5" in out
+        assert "--language en" in out
+        assert "--summarize" in out
