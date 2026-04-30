@@ -356,3 +356,146 @@ Comandos de verificación:
 ## Plan de implementación
 
 Ver `plans/2026-04-30-tui-yt-transcriber-plan.md` (escrito tras aprobar este spec).
+
+---
+
+# V2: UX/Presentation refresh (2026-04-30, post-implementación)
+
+## Motivación
+
+Tras un primer uso real (captura del usuario), surgieron 3 problemas concretos de legibilidad:
+
+1. Los tooltips se renderizaban inline pegados a la pregunta vía `questionary`'s `instruction=`, ocultando el indicador de default `(Y/n)`.
+2. El usuario no sabía si tipear `y`/`n`/`yes`/`no` ni cuál era la opción por defecto.
+3. No había agrupación visual entre fases (input → opciones → resumen → ejecución → resultado), todo era un flow lineal sin descansos.
+
+## Decisiones V2
+
+| Decisión | Justificación |
+|---|---|
+| Usar `rich` (ya en deps) en vez de añadir librería nueva | Cero deps adicionales, ya disponible para banners/secciones/colores |
+| Tooltips arriba del prompt, no inline | Quitar `instruction=` de questionary deja visible el `(Y/n)` nativo |
+| Numerado `[N/M]` por prompt | Dos beneficios: el usuario sabe cuántos pasos quedan y dónde está |
+| Resumen + comando CLI antes de ejecutar | El preview se muestra como tabla legible (`• campo: valor`) más el string CLI equivalente. Una pasada de lectura para confirmar |
+| Sección "Resultado" con `✓` y rutas | Tras la ejecución, las rutas relativas a archivos generados son claramente visibles, no enterradas en logs |
+| Banner con `rich.panel.Panel`, separadores con `rich.rule.Rule` | Nativo de rich, mantiene unidad visual y respeta tamaños de terminal |
+| Helpers semánticos (`_hint`, `_success`, `_skip`, `_warn`, `_info_line`, `_section`, `_banner`) | Encapsulan los estilos. Cambiar paleta = cambiar helpers, no cada llamada |
+
+## Componentes V2
+
+Añadidos a `yt_transcriber/tui.py`:
+
+```python
+from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
+
+console = Console()
+
+def _banner() -> None: ...
+def _section(title: str) -> None: ...   # Rule horizontal con título
+def _hint(text: str) -> None: ...       # gris, prefijo →, indented
+def _success(text: str) -> None: ...    # verde, prefijo ✓
+def _skip(text: str) -> None: ...       # amarillo, prefijo ✗ — para items omitidos
+def _warn(text: str) -> None: ...       # amarillo, prefijo [!]
+def _info_line(label: str, value: str) -> None: ...   # bullet • con label alineado
+```
+
+Modificaciones:
+
+- **`prompt_input_url`**: `_hint` antes; `instruction=` removido; blank line después.
+- **`prompt_transcribe_options`**: 5 pasos numerados `[1/5]`–`[5/5]`; `_hint` antes de cada uno; `instruction=` removido. Caso visual_evidence cuando `input_type != LOCAL`: `_skip("[5/5] Visual evidence: omitido (no aplica para URLs)")` en vez de salto silencioso.
+- **`prompt_playlist_options`**: 4 pasos numerados `[1/4]`–`[4/4]`; mismo patrón.
+- **`prompt_run_confirmation`**: ya no recibe `preview` (la preview se imprime fuera, en el resumen). Firma simplificada a `prompt_run_confirmation() -> bool`.
+- **`_run_transcribe` / `_run_playlist`**: estructura `_section("Opciones") → prompts → _section("Resumen") → _info_line(*) → CLI preview → confirm → _section("Ejecutando") → run → _section("Resultado") → _print_*_results`.
+- **`_print_transcribe_results`**: usa `_success` por archivo y `_warn` cuando vacío.
+- **`_print_playlist_results`**: idem; mantiene contadores reales (post-fix P1).
+- **`main`**: arranca con `_banner()`; cada loop empieza con `_section("Input")`; tras detectar tipo, `_success(f"Detectado: {label}")` con label legible (no el enum value); errores via `_warn`.
+
+## Flow V2 (referencia visual)
+
+```
+╭──────────────────────────────────────────────╮
+│  yt-transcriber — TUI                        │
+╰──────────────────────────────────────────────╯
+
+──────────── Input ────────────
+
+  → YouTube video, YouTube playlist, Google Drive, o ruta a archivo local
+
+? URL o ruta:  https://www.youtube.com/watch?v=XXX
+
+  ✓ Detectado: YouTube video
+
+──────── Opciones de transcripción ────────
+
+  → Auto-detect funciona pero es algo más lento. Códigos ISO 639-1: es, en, pt, fr, de, ...
+
+? [1/5] Idioma del audio:  es
+
+  → Genera resúmenes EN + ES con Claude (incrementa tiempo y consume cuota).
+
+? [2/5] ¿Generar resúmenes (EN + ES)?  (y/N)  N
+
+  → LinkedIn post + Twitter thread. Activa --summarize automáticamente.
+
+? [3/5] ¿Generar post kits?  (y/N)  N
+
+  → _segments.json con timestamps por segmento (útil para procesar después).
+
+? [4/5] ¿Sidecar de segmentos JSON?  (y/N)  N
+
+  ✗ [5/5] Visual evidence: omitido (no aplica para URLs)
+
+──────────── Resumen ────────────
+
+  • Subcomando:  transcribe
+  • URL:         https://www.youtube.com/watch?v=XXX
+  • Idioma:      es
+  • Summarize:   no
+  • Post kits:   no
+  • Segments:    no
+  • Visual:      n/a
+
+  CLI equivalente:
+    yt-transcriber transcribe -u "..." --language es
+
+? ¿Ejecutar?  (Y/n)
+
+──────────── Ejecutando ────────────
+
+[logs de yt-dlp + faster-whisper]
+
+──────────── Resultado ────────────
+
+  ✓ Transcript:  output/transcripts/Titulo_vid_XXX_job_YYY.txt
+
+? ¿Otra transcripción?  (Y/n)
+```
+
+## Caracteres unicode usados
+
+Subset BMP que renderiza correctamente en WezTerm + MINGW64 + Windows Terminal:
+
+`→` `✓` `✗` `•` `[!]` `╭` `╮` `╰` `╯` `─` `│`
+
+`rich.panel.Panel` y `rich.rule.Rule` se encargan de los box-drawing automáticamente.
+
+## Compatibilidad
+
+- Tests existentes (24 en `test_tui.py`, 5 `TestRunPlaylistCommand`, +nuevos de detect/playlist post-fix): siguen pasando. Testean lógica (`detect_input_type`, `apply_validation_rules`, `format_command_preview`), no formato de presentación.
+- `format_command_preview` se mantiene idéntica (string sin estilos). Se renderiza dentro del bloque "CLI equivalente" del resumen, con `[dim]` markup aplicado por `console.print`.
+- Aislamiento: si `rich` falla (improbable, ya está en deps), los prompts de `questionary` siguen funcionando — los helpers visuales hacen `console.print(...)` que no rompe nada si `rich` colapsa al fallback.
+
+## Out of scope V2
+
+- Spinners durante ejecución (Whisper ya tiene `tqdm`).
+- Tablas `rich.Table` para el resumen (overkill, bullet list legible).
+- Themes / dark-light toggle.
+- Internacionalización.
+- Configurabilidad de iconos.
+
+## Plan V2
+
+Ver `plans/2026-04-30-tui-ux-refresh-plan.md`.
+

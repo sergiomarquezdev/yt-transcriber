@@ -1,154 +1,48 @@
-"""Interactive TUI for yt-transcriber.
+# TUI yt-transcriber — UX refresh (V2)
 
-Wraps the programmatic API in `cli.py` (`run_transcribe_command`, `run_playlist_command`)
-with questionary prompts for an interactive workflow. Launch via `python -m yt_transcriber.tui`,
-the `ytt` bash function in ~/ai_configs/shell/ai-tools.sh, or `launch_tui.bat`.
-"""
-from __future__ import annotations
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to execute task-by-task.
 
-from enum import Enum
-from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+**Goal:** Refactor the existing TUI presentation layer to use `rich` for clear sections, line-separated tooltips, numbered steps, and a structured pre-run summary. Cosmetic-only — no logic changes.
 
-import questionary
+**Architecture:** All changes inside `yt_transcriber/tui.py`. Adds a thin presentation layer on top of existing `questionary` prompts. Uses `rich` (already in deps).
+
+**Tech Stack:** `rich>=13.7.0` (existing), `questionary>=2.0.0` (existing).
+
+**Spec:** `docs/superpowers/specs/2026-04-30-tui-yt-transcriber-design.md` § "V2: UX/Presentation refresh".
+
+---
+
+## File Structure
+
+| File | Action | Notes |
+|---|---|---|
+| `yt_transcriber/tui.py` | modify | Add helpers; refactor every prompt and runner; new banner/sections; structured summary block |
+| `tests/yt_transcriber/test_tui.py` | unchanged | Existing 24 tests cover `detect_input_type`, `apply_validation_rules`, `format_command_preview`, smoke imports — none assert formatting; all keep passing |
+
+No new files. No test changes required.
+
+---
+
+## Task 1: Helpers + prompt refactor
+
+**Files:**
+- Modify: `yt_transcriber/tui.py`
+
+- [ ] **Step 1: Add rich imports + helpers at the top of the file**
+
+Locate the imports block (after `from urllib.parse import ...`) and add:
+
+```python
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
 
 console = Console()
+```
 
+After all the `_T_*` tooltip constants and before `prompt_input_url`, insert the helpers block:
 
-class InputType(str, Enum):
-    YOUTUBE_VIDEO = "youtube_video"
-    YOUTUBE_PLAYLIST = "youtube_playlist"
-    DRIVE = "drive"
-    LOCAL = "local"
-    UNKNOWN = "unknown"
-
-
-_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
-_DRIVE_HOSTS = {"drive.google.com", "docs.google.com"}
-
-
-def detect_input_type(value: str) -> InputType:
-    """Classify a user-supplied input into one of the supported types.
-
-    Order:
-    1. Existing local path beats URL detection.
-    2. YouTube domain check (youtube.com / youtu.be variants).
-       - If query has `list=` → playlist (regardless of v= presence/order).
-       - Else youtube watch path or youtu.be path → video.
-    3. Google Drive / Docs domain.
-    4. Anything else → UNKNOWN.
-    """
-    stripped = value.strip()
-    if not stripped:
-        return InputType.UNKNOWN
-
-    # 1. Local path
-    try:
-        if Path(stripped).expanduser().exists():
-            return InputType.LOCAL
-    except (OSError, ValueError):
-        pass
-
-    # Parse URL
-    try:
-        parsed = urlparse(stripped)
-    except ValueError:
-        return InputType.UNKNOWN
-
-    host = (parsed.netloc or "").lower()
-
-    # 2. YouTube
-    if host in _YOUTUBE_HOSTS:
-        query = parse_qs(parsed.query)
-        if "list" in query:
-            return InputType.YOUTUBE_PLAYLIST
-        # video paths: /watch (long), /<id> (short youtu.be)
-        if parsed.path.startswith("/watch") or host == "youtu.be":
-            return InputType.YOUTUBE_VIDEO
-        return InputType.UNKNOWN
-
-    # 3. Drive
-    if host in _DRIVE_HOSTS:
-        return InputType.DRIVE
-
-    return InputType.UNKNOWN
-
-
-def apply_validation_rules(options: dict) -> dict:
-    """Enforce CLI cross-flag implications on a copy of `options`.
-
-    Rules (mirror `cli.py` and `service.py`):
-    - `post_kits=True` forces `summarize=True`.
-    - `visual_evidence=True` forces `segments=True`.
-
-    Missing keys are left untouched (e.g. playlist options dict has no
-    `segments` / `visual_evidence`).
-
-    Returns a new dict; does not mutate the input.
-    """
-    result = dict(options)
-    if result.get("post_kits"):
-        result["summarize"] = True
-    if result.get("visual_evidence"):
-        result["segments"] = True
-    return result
-
-
-def format_command_preview(subcommand: str, url: str, options: dict) -> str:
-    """Build a human-readable equivalent CLI command for the user to confirm.
-
-    The returned string is informational (used in a 'about to run' prompt). It is
-    NOT executed; the TUI calls the programmatic wrappers directly.
-
-    Args:
-        subcommand: "transcribe" or "playlist".
-        url: the input URL or path.
-        options: dict of resolved options (post-validation).
-
-    Returns:
-        A string like: `yt-transcriber transcribe -u "<url>" --language es --summarize`.
-    """
-    parts = ["yt-transcriber", subcommand, "-u", f'"{url}"']
-
-    lang = options.get("language")
-    if lang:
-        parts.extend(["--language", lang])
-
-    if subcommand == "playlist":
-        limit = options.get("limit")
-        if limit is not None:
-            parts.extend(["--limit", str(limit)])
-
-    if options.get("summarize"):
-        parts.append("--summarize")
-    if options.get("post_kits"):
-        parts.append("--post-kits")
-
-    if subcommand == "transcribe":
-        if options.get("segments"):
-            parts.append("--segments")
-        if options.get("visual_evidence"):
-            parts.append("--visual-evidence")
-
-    return " ".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Tooltip strings (shown above each prompt via _hint)
-# ---------------------------------------------------------------------------
-_T_URL = "YouTube video URL, YouTube playlist URL, Google Drive URL, o ruta a archivo local"
-_T_LANGUAGE_TRANSCRIBE = "Auto-detect funciona pero es algo más lento. Códigos ISO 639-1: es, en, pt, fr, de, ..."
-_T_LANGUAGE_PLAYLIST = "Idioma de los subtítulos automáticos a descargar de YouTube"
-_T_SUMMARIZE = "Genera resúmenes EN + ES con Claude (incrementa tiempo y consume cuota Claude)"
-_T_POST_KITS = "LinkedIn post + Twitter thread. Activa --summarize automáticamente."
-_T_SEGMENTS = "Genera _segments.json con timestamps por segmento (útil para procesar después)"
-_T_VISUAL_EVIDENCE = "Extrae frames clave del video. Solo funciona con archivos locales. Activa --segments."
-_T_LIMIT = "Vacío = playlist completa. Número entero = procesar últimos N videos."
-
-
+```python
 # ---------------------------------------------------------------------------
 # Presentation helpers (rich)
 # ---------------------------------------------------------------------------
@@ -195,8 +89,13 @@ def _warn(text: str) -> None:
 def _info_line(label: str, value: str) -> None:
     """Bullet line for the pre-run summary."""
     console.print(f"  • [bold]{label:<14}[/bold] {value}")
+```
 
+- [ ] **Step 2: Refactor `prompt_input_url`**
 
+Replace the existing function with:
+
+```python
 def prompt_input_url() -> str:
     """Ask for the input URL/path. Returns stripped non-empty string or raises KeyboardInterrupt."""
     while True:
@@ -205,8 +104,15 @@ def prompt_input_url() -> str:
         if value and value.strip():
             console.print()
             return value.strip()
+```
 
+Key change: `_hint(_T_URL)` above the prompt; `instruction=` argument removed; blank line after a valid response.
 
+- [ ] **Step 3: Refactor `prompt_transcribe_options`**
+
+Replace the existing function with:
+
+```python
 def prompt_transcribe_options(input_type: InputType) -> dict:
     """Ask all transcribe-flow questions. Returns dict with options (pre-validation)."""
     total = 5
@@ -274,8 +180,13 @@ def prompt_transcribe_options(input_type: InputType) -> dict:
         "segments": segments,
         "visual_evidence": visual_evidence,
     }
+```
 
+- [ ] **Step 4: Refactor `prompt_playlist_options`**
 
+Replace the existing function with:
+
+```python
 def prompt_playlist_options() -> dict:
     """Ask all playlist-flow questions. Returns dict with options (pre-validation)."""
     total = 4
@@ -342,8 +253,13 @@ def prompt_playlist_options() -> dict:
         "summarize": summarize,
         "post_kits": post_kits,
     }
+```
 
+- [ ] **Step 5: Simplify `prompt_run_confirmation` and update `prompt_run_again`**
 
+Replace both with:
+
+```python
 def prompt_run_confirmation() -> bool:
     """Ask for go/no-go. The pre-run summary is printed by the caller."""
     return questionary.confirm("¿Ejecutar?", default=True).unsafe_ask()
@@ -352,8 +268,44 @@ def prompt_run_confirmation() -> bool:
 def prompt_run_again() -> bool:
     """Ask if the user wants another run. Default Yes for chained workflows."""
     return questionary.confirm("¿Otra transcripción?", default=True).unsafe_ask()
+```
 
+`prompt_run_confirmation` no longer takes a `preview` argument — it is printed by `_run_transcribe` / `_run_playlist` as part of the "Resumen" section (see Task 2). The smoke test `test_prompt_functions_exist` only checks `callable(...)` so the signature change is safe.
 
+- [ ] **Step 6: Run tests + smoke import**
+
+```bash
+.venv/Scripts/python.exe -m pytest tests/yt_transcriber/test_tui.py -v
+.venv/Scripts/python.exe -c "from yt_transcriber.tui import (
+    prompt_input_url, prompt_transcribe_options, prompt_playlist_options,
+    prompt_run_confirmation, prompt_run_again, _banner, _section, _hint,
+    _success, _skip, _warn, _info_line
+); print('imports ok')"
+```
+
+Expected: all 24 tests in `test_tui.py` PASS; smoke prints `imports ok`.
+
+If any test fails: STOP and report — likely the `instruction=` removal broke an assertion that was checking it, but per audit none of the existing tests assert that.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add yt_transcriber/tui.py
+git commit -m "feat(tui): add rich presentation helpers and refactor prompts (V2 step 1)"
+```
+
+---
+
+## Task 2: Refactor runners, results, and main loop
+
+**Files:**
+- Modify: `yt_transcriber/tui.py`
+
+- [ ] **Step 1: Refactor `_print_transcribe_results`**
+
+Replace the existing function with:
+
+```python
 def _print_transcribe_results(result: tuple) -> None:
     """Pretty-print the tuple returned by run_transcribe_command."""
     transcript_path, summary_en, summary_es, post_kits = result
@@ -368,8 +320,13 @@ def _print_transcribe_results(result: tuple) -> None:
         _success(f"Summary ES:    {summary_es}")
     if post_kits:
         _success(f"Post kits:     {post_kits}")
+```
 
+- [ ] **Step 2: Refactor `_print_playlist_results`**
 
+Replace the existing function with:
+
+```python
 def _print_playlist_results(stats: dict) -> None:
     """Pretty-print the dict returned by run_playlist_command.
 
@@ -398,8 +355,13 @@ def _print_playlist_results(stats: dict) -> None:
             _success(str(f))
         if len(files) > 10:
             console.print(f"  [dim]... y {len(files) - 10} más[/dim]")
+```
 
+- [ ] **Step 3: Refactor `_run_transcribe`**
 
+Replace the existing function with:
+
+```python
 def _run_transcribe(url: str, input_type: InputType) -> None:
     from yt_transcriber.cli import run_transcribe_command
 
@@ -442,8 +404,13 @@ def _run_transcribe(url: str, input_type: InputType) -> None:
 
     _section("Resultado")
     _print_transcribe_results(result)
+```
 
+- [ ] **Step 4: Refactor `_run_playlist`**
 
+Replace the existing function with:
+
+```python
 def _run_playlist(url: str) -> None:
     from yt_transcriber.cli import run_playlist_command
 
@@ -478,8 +445,13 @@ def _run_playlist(url: str) -> None:
 
     _section("Resultado")
     _print_playlist_results(stats)
+```
 
+- [ ] **Step 5: Refactor `main`**
 
+Replace the existing function with:
+
+```python
 _INPUT_TYPE_LABELS = {
     InputType.YOUTUBE_VIDEO: "YouTube video",
     InputType.YOUTUBE_PLAYLIST: "YouTube playlist",
@@ -527,3 +499,78 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+```
+
+- [ ] **Step 6: Run full suite + smoke**
+
+```bash
+.venv/Scripts/python.exe -m pytest -q
+.venv/Scripts/python.exe -c "from yt_transcriber.tui import main; print(main)"
+```
+
+Expected: `283 passed, 3 skipped` (or equivalent — same baseline as before this task). Smoke prints `<function main at 0x...>`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add yt_transcriber/tui.py
+git commit -m "feat(tui): rich-styled sections, summary panel and result blocks (V2 step 2)"
+```
+
+---
+
+## Task 3: Verification
+
+**Files:** none (read-only validation)
+
+- [ ] **Step 1: Full pytest**
+
+```bash
+.venv/Scripts/python.exe -m pytest -v 2>&1 | tail -40
+```
+
+Expected: 283 passed, 3 skipped. No regressions.
+
+- [ ] **Step 2: Lint check**
+
+```bash
+.venv/Scripts/python.exe -m ruff check yt_transcriber/tui.py tests/yt_transcriber/test_tui.py
+```
+
+Expected: clean or only pre-existing `UP042` (`enum.StrEnum` suggestion). New issues introduced by V2 must be fixed via `ruff check --fix yt_transcriber/tui.py`.
+
+- [ ] **Step 3: Visual smoke (manual, requires user)**
+
+```bash
+.venv/Scripts/python.exe -m yt_transcriber.tui
+```
+
+Walk through:
+1. Paste a YouTube video URL.
+2. Verify banner, "Input" section, "Detectado: YouTube video" with green ✓.
+3. Walk all 5 prompts; confirm `[N/5]` prefix, dim tooltip above, `(Y/n)` indicator visible.
+4. Confirm "Resumen" block lists all 7 fields + CLI equivalente.
+5. Cancel at "¿Ejecutar?" (No).
+6. Verify cancellation message in yellow.
+7. Confirm "¿Otra transcripción?" appears with default Yes.
+8. Try an invalid input (`https://example.com`) — verify warning and re-prompt.
+9. Try a YouTube playlist URL — verify "YouTube playlist" detection and 4-step playlist flow.
+10. Press Ctrl+C anywhere — verify clean exit with `Cancelado por el usuario.` warning.
+
+If anything renders broken (encoding glitches, characters not visible, alignment off), report it as DONE_WITH_CONCERNS so we can decide a tweak.
+
+- [ ] **Step 4: No commit needed**
+
+Verification only.
+
+---
+
+## Out-of-scope reminders
+
+These are explicitly out of scope (per spec V2):
+
+- Spinners during execution (Whisper has tqdm).
+- Tabular `rich.Table` for the summary (bullet list is enough).
+- Themes / dark-light toggle.
+- Internationalization.
+- Configurable icons.
