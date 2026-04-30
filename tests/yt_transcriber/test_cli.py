@@ -109,15 +109,14 @@ class TestCommandPlaylist:
 
     @patch("core.media_downloader.extract_playlist_entries")
     def test_command_playlist_empty_playlist(self, mock_extract):
-        """Test empty playlist exits cleanly."""
+        """Test empty playlist returns zero stats (no longer sys.exit(0))."""
         from yt_transcriber.cli import command_playlist
 
         mock_extract.return_value = []
         args = self._make_args()
 
-        with pytest.raises(SystemExit) as exc_info:
-            command_playlist(args)
-        assert exc_info.value.code == 0
+        result = command_playlist(args)
+        assert result == {"successful": 0, "failed": 0, "files": []}
 
     @patch("core.media_downloader.extract_playlist_entries")
     def test_command_playlist_extract_failure(self, mock_extract):
@@ -252,3 +251,39 @@ class TestRunPlaylistCommand:
         )
 
         assert result["failed"] >= 1
+
+    @patch("yt_transcriber.cli.command_playlist")
+    def test_returns_real_stats_when_command_playlist_returns_dict(self, mock_command_playlist):
+        """When command_playlist returns a stats dict, wrapper passes it through."""
+        from yt_transcriber.cli import run_playlist_command
+
+        mock_command_playlist.return_value = {"successful": 7, "failed": 2, "files": ["a.txt", "b.txt"]}
+
+        result = run_playlist_command(
+            url="https://www.youtube.com/playlist?list=PLxxx",
+            limit=10,
+            language="es",
+            generate_summary=False,
+            generate_post_kits=False,
+        )
+
+        assert result == {"successful": 7, "failed": 2, "files": ["a.txt", "b.txt"]}
+
+    @patch("yt_transcriber.cli.command_playlist")
+    def test_empty_playlist_returns_zero_zero(self, mock_command_playlist):
+        """Empty playlist (sys.exit(0)): successful=0, failed=0, not successful=1."""
+        from yt_transcriber.cli import run_playlist_command
+
+        mock_command_playlist.side_effect = SystemExit(0)
+
+        result = run_playlist_command(
+            url="https://www.youtube.com/playlist?list=PLempty",
+            limit=None,
+            language="es",
+            generate_summary=False,
+            generate_post_kits=False,
+        )
+
+        # sys.exit(0) means "no work to do" (empty playlist) — neither success nor failure
+        assert result["successful"] == 0
+        assert result["failed"] == 0

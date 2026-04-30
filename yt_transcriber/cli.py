@@ -279,7 +279,7 @@ def command_playlist(args):
     if not entries:
         logger.warning("Playlist is empty or could not be read.")
         print("No videos found in the playlist.")
-        sys.exit(0)
+        return {"successful": 0, "failed": 0, "files": []}
 
     # 2) Slice to last N if --limit is set
     if args.limit and args.limit > 0:
@@ -297,6 +297,7 @@ def command_playlist(args):
 
     completed = 0
     failed = 0
+    files: list[str] = []
 
     for i, entry in enumerate(entries, 1):
         logger.info(f"[{i}/{total}] {entry.title}")
@@ -316,6 +317,7 @@ def command_playlist(args):
                 continue
 
             print(f"  -> Transcript saved: {txt_path}")
+            files.append(str(txt_path))
 
             # Optional: generate summaries
             if generate_summary:
@@ -358,6 +360,7 @@ def command_playlist(args):
     # Final summary
     print(f"\nCompleted: {completed}/{total}, Failed: {failed}")
     logger.info(f"Playlist batch done. Completed: {completed}/{total}, Failed: {failed}")
+    return {"successful": completed, "failed": failed, "files": files}
 
 
 def main():
@@ -506,25 +509,20 @@ def run_playlist_command(
         post_kits=generate_post_kits,
     )
 
-    stats: dict = {"successful": 0, "failed": 0, "files": []}
-
     try:
-        command_playlist(args)
-        # command_playlist prints its own per-video progress; we record overall success.
-        # If it returns normally, we trust it ran without fatal errors. Per-video failures
-        # are visible in stdout but not retrievable here without refactoring command_playlist.
-        # For V1 the dict is mostly a "did it finish" signal.
-        stats["successful"] = 1
+        result = command_playlist(args)
+        if isinstance(result, dict):
+            return result
+        # command_playlist returned None — legacy fallback, neutral stats
+        return {"successful": 0, "failed": 0, "files": []}
     except SystemExit as e:
         if e.code == 0:
-            stats["successful"] = 1
-        else:
-            stats["failed"] = 1
+            # empty playlist or graceful exit — no work done
+            return {"successful": 0, "failed": 0, "files": []}
+        return {"successful": 0, "failed": 1, "files": []}
     except Exception as e:
-        stats["failed"] = 1
         print(f"[run_playlist_command] error: {e}", file=sys.stderr)
-
-    return stats
+        return {"successful": 0, "failed": 1, "files": [], "error": str(e)}
 
 
 if __name__ == "__main__":
