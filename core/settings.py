@@ -76,12 +76,6 @@ class AppSettings(BaseSettings):
         description="Minimum segment duration to consider visual evidence",
     )
 
-    # ========== YT-DLP ==========
-    YT_SEARCH_TIMEOUT_SECONDS: int = Field(
-        default=180,
-        description="Timeout (seconds) for yt-dlp search/info calls",
-    )
-
 
 # Build the global instance
 try:

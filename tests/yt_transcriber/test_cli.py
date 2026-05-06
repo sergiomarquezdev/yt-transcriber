@@ -44,7 +44,7 @@ class TestCommandPlaylist:
 
         args = self._make_args()
 
-        with patch("core.settings.settings") as mock_settings:
+        with patch("yt_transcriber.cli.settings") as mock_settings:
             mock_settings.OUTPUT_BASE_DIR = tmp_path
             command_playlist(args)
 
@@ -71,7 +71,7 @@ class TestCommandPlaylist:
 
         args = self._make_args(limit=1)
 
-        with patch("core.settings.settings") as mock_settings:
+        with patch("yt_transcriber.cli.settings") as mock_settings:
             mock_settings.OUTPUT_BASE_DIR = tmp_path
             command_playlist(args)
 
@@ -108,7 +108,7 @@ class TestCommandPlaylist:
 
         args = self._make_args()
 
-        with patch("core.settings.settings") as mock_settings:
+        with patch("yt_transcriber.cli.settings") as mock_settings:
             mock_settings.OUTPUT_BASE_DIR = tmp_path
             command_playlist(args)
 

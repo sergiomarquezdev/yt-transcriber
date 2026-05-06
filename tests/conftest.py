@@ -23,14 +23,6 @@ def temp_dir():
 
 
 @pytest.fixture
-def temp_cache_dir(temp_dir):
-    """Create a temporary cache directory."""
-    cache_dir = temp_dir / "cache"
-    cache_dir.mkdir(parents=True)
-    return cache_dir
-
-
-@pytest.fixture
 def temp_output_dir(temp_dir):
     """Create a temporary output directory."""
     output_dir = temp_dir / "output"

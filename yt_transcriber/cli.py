@@ -213,7 +213,6 @@ def command_playlist(args):
     setup_logging()
 
     import core.media_downloader as _dl
-    from core.settings import settings as app_settings
     from datetime import datetime
 
     from yt_transcriber.utils import normalize_title_for_filename
@@ -248,7 +247,7 @@ def command_playlist(args):
         normalized = normalize_title_for_filename(entry.title)
         unique_job_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
         stem = f"{normalized}_vid_{entry.video_id}_job_{unique_job_id}"
-        entry_dir = app_settings.OUTPUT_BASE_DIR / stem
+        entry_dir = settings.OUTPUT_BASE_DIR / stem
         entry_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -261,11 +260,9 @@ def command_playlist(args):
             if raw_path is None:
                 logger.warning(f"No subtitles found for: {entry.title}")
                 print(f"  -> No auto-subs ({args.language}) available, skipping.")
-                # Cleanup empty per-video folder so the user doesn't see ghosts
-                try:
-                    entry_dir.rmdir()
-                except OSError:
-                    pass
+                # Cleanup the per-video folder so the user doesn't see ghosts
+                # (use rmtree because yt-dlp may have written partial subtitle files)
+                shutil.rmtree(entry_dir, ignore_errors=True)
                 failed += 1
                 continue
 

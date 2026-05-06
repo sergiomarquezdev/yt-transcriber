@@ -3,8 +3,8 @@
 This module centralizes the end-to-end flow used by both CLI and TUI:
 Download -> Transcribe -> Save (transcript + optional segments + optional frames)
 
-CLI keeps a thin wrapper that forwards to this service for testability and
-backward compatibility (tests patch functions in yt_transcriber.cli).
+CLI keeps a thin wrapper that forwards to this service so the bulk of the
+logic can be unit-tested without going through the argparse layer.
 """
 
 import logging
