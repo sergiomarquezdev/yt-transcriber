@@ -84,18 +84,10 @@ class TestDetectInputType:
 
 
 class TestApplyValidationRules:
-    def test_post_kits_forces_summarize(self):
-        from yt_transcriber.tui import apply_validation_rules
-
-        opts = {"summarize": False, "post_kits": True, "segments": False, "visual_evidence": False}
-        result = apply_validation_rules(opts)
-        assert result["summarize"] is True
-        assert result["post_kits"] is True
-
     def test_visual_evidence_forces_segments(self):
         from yt_transcriber.tui import apply_validation_rules
 
-        opts = {"summarize": False, "post_kits": False, "segments": False, "visual_evidence": True}
+        opts = {"segments": False, "visual_evidence": True}
         result = apply_validation_rules(opts)
         assert result["segments"] is True
         assert result["visual_evidence"] is True
@@ -103,22 +95,14 @@ class TestApplyValidationRules:
     def test_no_implications_keeps_values(self):
         from yt_transcriber.tui import apply_validation_rules
 
-        opts = {"summarize": True, "post_kits": False, "segments": True, "visual_evidence": False}
+        opts = {"segments": True, "visual_evidence": False}
         result = apply_validation_rules(opts)
         assert result == opts
-
-    def test_both_implications_apply(self):
-        from yt_transcriber.tui import apply_validation_rules
-
-        opts = {"summarize": False, "post_kits": True, "segments": False, "visual_evidence": True}
-        result = apply_validation_rules(opts)
-        assert result["summarize"] is True
-        assert result["segments"] is True
 
     def test_does_not_mutate_input(self):
         from yt_transcriber.tui import apply_validation_rules
 
-        opts = {"summarize": False, "post_kits": True, "segments": False, "visual_evidence": False}
+        opts = {"segments": False, "visual_evidence": True}
         opts_copy = dict(opts)
         apply_validation_rules(opts)
         assert opts == opts_copy  # original untouched
@@ -127,16 +111,16 @@ class TestApplyValidationRules:
         """Playlist options dict has no segments/visual_evidence keys; rules must not crash."""
         from yt_transcriber.tui import apply_validation_rules
 
-        opts = {"summarize": False, "post_kits": True}
+        opts = {"limit": None, "language": "es"}
         result = apply_validation_rules(opts)
-        assert result["summarize"] is True
+        assert result == opts
 
 
 class TestFormatCommandPreview:
     def test_transcribe_minimal(self):
         from yt_transcriber.tui import format_command_preview
 
-        opts = {"language": None, "summarize": False, "post_kits": False, "segments": False, "visual_evidence": False}
+        opts = {"language": None, "segments": False, "visual_evidence": False}
         out = format_command_preview("transcribe", "https://youtu.be/abc", opts)
 
         assert "transcribe" in out
@@ -144,30 +128,31 @@ class TestFormatCommandPreview:
         assert "--summarize" not in out
         assert "--language" not in out
 
-    def test_transcribe_with_language_and_summarize(self):
+    def test_transcribe_with_language_and_segments(self):
         from yt_transcriber.tui import format_command_preview
 
-        opts = {"language": "es", "summarize": True, "post_kits": False, "segments": False, "visual_evidence": False}
+        opts = {"language": "es", "segments": True, "visual_evidence": False}
         out = format_command_preview("transcribe", "https://youtu.be/abc", opts)
 
         assert "--language es" in out
-        assert "--summarize" in out
+        assert "--segments" in out
+        assert "--summarize" not in out
 
-    def test_transcribe_with_post_kits_and_visual(self):
+    def test_transcribe_with_visual_evidence(self):
         from yt_transcriber.tui import format_command_preview
 
-        opts = {"language": "en", "summarize": True, "post_kits": True, "segments": True, "visual_evidence": True}
+        opts = {"language": "en", "segments": True, "visual_evidence": True}
         out = format_command_preview("transcribe", "/local/video.mp4", opts)
 
-        assert "--post-kits" in out
         assert "--visual-evidence" in out
         assert "--segments" in out
         assert "/local/video.mp4" in out
+        assert "--post-kits" not in out
 
     def test_playlist_minimal(self):
         from yt_transcriber.tui import format_command_preview
 
-        opts = {"limit": None, "language": "es", "summarize": False, "post_kits": False}
+        opts = {"limit": None, "language": "es"}
         out = format_command_preview("playlist", "https://www.youtube.com/playlist?list=PLxxx", opts)
 
         assert "playlist" in out
@@ -176,12 +161,12 @@ class TestFormatCommandPreview:
     def test_playlist_with_limit(self):
         from yt_transcriber.tui import format_command_preview
 
-        opts = {"limit": 5, "language": "en", "summarize": True, "post_kits": False}
+        opts = {"limit": 5, "language": "en"}
         out = format_command_preview("playlist", "https://www.youtube.com/playlist?list=PLxxx", opts)
 
         assert "--limit 5" in out
         assert "--language en" in out
-        assert "--summarize" in out
+        assert "--summarize" not in out
 
 
 class TestSmoke:
@@ -202,3 +187,34 @@ class TestSmoke:
         assert callable(prompt_input_url)
         assert callable(prompt_run_confirmation)
         assert callable(prompt_run_again)
+
+
+def test_transcribe_options_have_no_summarize_or_post_kits(monkeypatch):
+    """prompt_transcribe_options no longer asks about summarize/post_kits."""
+    from yt_transcriber import tui
+
+    answers_iter = iter([
+        # [1/3] language
+        type("Q", (), {"unsafe_ask": lambda self: "es"})(),
+        # [2/3] segments
+        type("Q", (), {"unsafe_ask": lambda self: False})(),
+        # [3/3] visual evidence (only asked for LOCAL)
+        type("Q", (), {"unsafe_ask": lambda self: False})(),
+    ])
+
+    def fake_select(*args, **kwargs):
+        return next(answers_iter)
+
+    def fake_confirm(*args, **kwargs):
+        return next(answers_iter)
+
+    monkeypatch.setattr("questionary.select", fake_select)
+    monkeypatch.setattr("questionary.confirm", fake_confirm)
+
+    options = tui.prompt_transcribe_options(tui.InputType.LOCAL)
+
+    assert "summarize" not in options
+    assert "post_kits" not in options
+    assert options["language"] == "es"
+    assert options["segments"] is False
+    assert options["visual_evidence"] is False
