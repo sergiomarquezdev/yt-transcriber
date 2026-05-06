@@ -15,16 +15,12 @@ class TestCommandPlaylist:
         url="https://www.youtube.com/playlist?list=PLtest",
         limit=None,
         language="es",
-        summarize=False,
-        post_kits=False,
     ):
         """Build a mock args namespace matching the playlist subcommand."""
         args = MagicMock()
         args.url = url
         args.limit = limit
         args.language = language
-        args.summarize = summarize
-        args.post_kits = post_kits
         return args
 
     @patch("core.media_downloader.download_auto_subtitles")
@@ -38,16 +34,18 @@ class TestCommandPlaylist:
             PlaylistEntry(video_id="v2", title="Video 2", url="https://www.youtube.com/watch?v=v2"),
         ]
 
-        txt1 = tmp_path / "v1.txt"
-        txt1.write_text("transcript 1", encoding="utf-8")
-        txt2 = tmp_path / "v2.txt"
-        txt2.write_text("transcript 2", encoding="utf-8")
-        mock_download.side_effect = [txt1, txt2]
+        # mock returns a file inside the per-video dir that the loop creates
+        def fake_download(video_url, output_dir, lang):
+            f = output_dir / "raw.txt"
+            f.write_text("transcript", encoding="utf-8")
+            return f
+
+        mock_download.side_effect = fake_download
 
         args = self._make_args()
 
-        with patch("core.settings.settings") as mock_settings:
-            mock_settings.OUTPUT_TRANSCRIPTS_DIR = tmp_path
+        with patch("yt_transcriber.cli.settings") as mock_settings:
+            mock_settings.OUTPUT_BASE_DIR = tmp_path
             command_playlist(args)
 
         assert mock_download.call_count == 2
@@ -64,14 +62,17 @@ class TestCommandPlaylist:
             PlaylistEntry(video_id="v3", title="Video 3", url="https://www.youtube.com/watch?v=v3"),
         ]
 
-        txt = tmp_path / "v3.txt"
-        txt.write_text("transcript 3", encoding="utf-8")
-        mock_download.return_value = txt
+        def fake_download(video_url, output_dir, lang):
+            f = output_dir / "raw.txt"
+            f.write_text("transcript 3", encoding="utf-8")
+            return f
+
+        mock_download.side_effect = fake_download
 
         args = self._make_args(limit=1)
 
-        with patch("core.settings.settings") as mock_settings:
-            mock_settings.OUTPUT_TRANSCRIPTS_DIR = tmp_path
+        with patch("yt_transcriber.cli.settings") as mock_settings:
+            mock_settings.OUTPUT_BASE_DIR = tmp_path
             command_playlist(args)
 
         # Only the last 1 video should be processed
@@ -89,19 +90,26 @@ class TestCommandPlaylist:
             PlaylistEntry(video_id="v3", title="Video 3", url="https://www.youtube.com/watch?v=v3"),
         ]
 
-        txt = tmp_path / "v3.txt"
-        txt.write_text("transcript 3", encoding="utf-8")
-        # First fails with exception, second returns None (no subs), third succeeds
-        mock_download.side_effect = [
-            Exception("network error"),
-            None,
-            txt,
-        ]
+        call_count = [0]
+
+        def fake_download(video_url, output_dir, lang):
+            call_count[0] += 1
+            n = call_count[0]
+            if n == 1:
+                raise Exception("network error")
+            if n == 2:
+                return None  # no subs
+            # n == 3: success
+            f = output_dir / "raw.txt"
+            f.write_text("transcript 3", encoding="utf-8")
+            return f
+
+        mock_download.side_effect = fake_download
 
         args = self._make_args()
 
-        with patch("core.settings.settings") as mock_settings:
-            mock_settings.OUTPUT_TRANSCRIPTS_DIR = tmp_path
+        with patch("yt_transcriber.cli.settings") as mock_settings:
+            mock_settings.OUTPUT_BASE_DIR = tmp_path
             command_playlist(args)
 
         # All 3 should have been attempted
@@ -180,7 +188,7 @@ class TestTranscribeFlags:
             with patch("yt_transcriber.cli.whisper_model_context") as mock_context:
                 with patch("yt_transcriber.cli.process_transcription") as mock_process:
                     mock_context.return_value.__enter__.return_value = MagicMock()
-                    mock_process.return_value = (None, None, None, None)
+                    mock_process.return_value = None
 
                     run_transcribe_command(
                         url="https://www.youtube.com/watch?v=abcdefghijk",
@@ -207,8 +215,6 @@ class TestRunPlaylistCommand:
             url="https://www.youtube.com/playlist?list=PLxxx",
             limit=3,
             language="es",
-            generate_summary=False,
-            generate_post_kits=False,
         )
 
         assert isinstance(result, dict)
@@ -228,8 +234,6 @@ class TestRunPlaylistCommand:
             url="https://www.youtube.com/playlist?list=PLxxx",
             limit=None,
             language="es",
-            generate_summary=False,
-            generate_post_kits=False,
         )
 
         assert result["failed"] >= 1
@@ -246,8 +250,6 @@ class TestRunPlaylistCommand:
             url="https://www.youtube.com/playlist?list=PLxxx",
             limit=None,
             language="es",
-            generate_summary=False,
-            generate_post_kits=False,
         )
 
         assert result["failed"] >= 1
@@ -263,8 +265,6 @@ class TestRunPlaylistCommand:
             url="https://www.youtube.com/playlist?list=PLxxx",
             limit=10,
             language="es",
-            generate_summary=False,
-            generate_post_kits=False,
         )
 
         assert result == {"successful": 7, "failed": 2, "files": ["a.txt", "b.txt"]}
@@ -280,10 +280,34 @@ class TestRunPlaylistCommand:
             url="https://www.youtube.com/playlist?list=PLempty",
             limit=None,
             language="es",
-            generate_summary=False,
-            generate_post_kits=False,
         )
 
         # sys.exit(0) means "no work to do" (empty playlist) — neither success nor failure
         assert result["successful"] == 0
         assert result["failed"] == 0
+
+
+class _fake_ctx:
+    def __enter__(self):
+        return object()
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_run_transcribe_command_returns_single_path(monkeypatch, tmp_path):
+    """run_transcribe_command returns just the transcript path string (or None)."""
+    from yt_transcriber import cli
+
+    fake_path = tmp_path / "video" / "video.txt"
+    fake_path.parent.mkdir(parents=True)
+    fake_path.write_text("hi", encoding="utf-8")
+
+    def fake_pt(**kwargs):
+        return fake_path
+
+    monkeypatch.setattr(cli, "process_transcription", fake_pt)
+    monkeypatch.setattr(cli, "whisper_model_context", lambda: _fake_ctx())
+
+    result = cli.run_transcribe_command(url="https://youtu.be/abc")
+    assert result == str(fake_path)

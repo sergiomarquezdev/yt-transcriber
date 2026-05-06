@@ -2,7 +2,6 @@
 
 import shutil
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -21,14 +20,6 @@ def temp_dir():
     # Cleanup after test
     if path.exists():
         shutil.rmtree(path)
-
-
-@pytest.fixture
-def temp_cache_dir(temp_dir):
-    """Create a temporary cache directory."""
-    cache_dir = temp_dir / "cache"
-    cache_dir.mkdir(parents=True)
-    return cache_dir
 
 
 @pytest.fixture
@@ -109,42 +100,6 @@ def sample_transcript_es():
     """
 
 
-@pytest.fixture
-def sample_video_summary():
-    """Create a sample VideoSummary for testing."""
-    from core.models import TimestampedSection, VideoSummary
-
-    return VideoSummary(
-        video_url="https://youtube.com/watch?v=test123",
-        video_title="Test Video Title",
-        video_id="test123",
-        executive_summary="This is a test executive summary.",
-        key_points=[
-            "First key point",
-            "Second key point",
-            "Third key point",
-        ],
-        timestamps=[
-            TimestampedSection(
-                timestamp="00:00",
-                description="Introduction",
-                importance=3,
-            ),
-            TimestampedSection(
-                timestamp="05:30",
-                description="Main content",
-                importance=5,
-            ),
-        ],
-        conclusion="This is the test conclusion.",
-        action_items=["Action 1", "Action 2"],
-        word_count=500,
-        estimated_duration_minutes=3.5,
-        language="en",
-        generated_at=datetime(2024, 1, 1, 12, 0, 0),
-    )
-
-
 # =============================================================================
 # ENVIRONMENT FIXTURES
 # =============================================================================
@@ -161,90 +116,6 @@ def mock_env_vars(monkeypatch):
     for key, value in env_vars.items():
         monkeypatch.setenv(key, value)
     return env_vars
-
-
-@pytest.fixture
-def clean_env(monkeypatch):
-    """Remove API-related environment variables."""
-    keys_to_remove = [
-        "CLAUDE_CLI_PATH",
-    ]
-    for key in keys_to_remove:
-        monkeypatch.delenv(key, raising=False)
-
-
-# =============================================================================
-# LLM RESPONSE FIXTURES
-# =============================================================================
-
-
-@pytest.fixture
-def sample_llm_summary_response():
-    """Sample LLM response for summary generation."""
-    return """
-# 📹 Summary: Test Video
-
-## 🎯 Executive Summary
-This video covers the basics of Python testing with pytest.
-
-## 🔑 Key Points
-1. **Testing basics**: Understanding unit tests
-2. **Pytest features**: Fixtures and assertions
-3. **Best practices**: Writing maintainable tests
-
-## ⏱️ Important Moments
-- **00:00** - Introduction to testing
-- **05:30** - Setting up pytest
-- **10:00** - Writing your first test
-
-## 💡 Conclusion
-Testing is essential for quality software.
-
-## ✅ Action Items
-1. Install pytest
-2. Write your first test
-3. Practice TDD
-"""
-
-
-@pytest.fixture
-def sample_linkedin_response():
-    """Sample LLM response for LinkedIn post generation."""
-    return """
-Hook: Python testing has never been easier
-
-Intro: After years of writing untested code, pytest changed everything.
-
-Insight1: 🔹 Simple syntax: Write tests that read like documentation
-Insight2: 🔹 Powerful fixtures: Reusable test setup without boilerplate
-Insight3: 🔹 Plugin ecosystem: Extend functionality for any use case
-Insight4: 🔹 Fast execution: Run thousands of tests in seconds
-
-WhyItMatters: Quality software starts with quality tests
-
-CTA: What testing framework do you use?
-
-Tags: #Python #Testing #SoftwareDevelopment
-"""
-
-
-@pytest.fixture
-def sample_twitter_response():
-    """Sample LLM response for Twitter thread generation."""
-    return """
-1. Just discovered pytest and my mind is blown 🚀
-2. Simple syntax makes testing enjoyable, not a chore
-3. Fixtures eliminate repetitive setup code entirely
-4. Parametrize lets you test multiple scenarios in one function
-5. The plugin system is incredibly powerful
-6. Coverage reports show exactly what needs testing
-7. Watch mode reruns tests on file changes
-8. Integration with CI/CD is seamless
-9. This is how testing should have always been
-10. Ready to level up your Python testing game?
-
-Hashtags: Python, Testing, DevTools
-"""
 
 
 # =============================================================================

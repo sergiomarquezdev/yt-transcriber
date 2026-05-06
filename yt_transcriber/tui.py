@@ -80,37 +80,16 @@ def detect_input_type(value: str) -> InputType:
 def apply_validation_rules(options: dict) -> dict:
     """Enforce CLI cross-flag implications on a copy of `options`.
 
-    Rules (mirror `cli.py` and `service.py`):
-    - `post_kits=True` forces `summarize=True`.
-    - `visual_evidence=True` forces `segments=True`.
-
-    Missing keys are left untouched (e.g. playlist options dict has no
-    `segments` / `visual_evidence`).
-
-    Returns a new dict; does not mutate the input.
+    Rule: `visual_evidence=True` forces `segments=True`.
     """
     result = dict(options)
-    if result.get("post_kits"):
-        result["summarize"] = True
     if result.get("visual_evidence"):
         result["segments"] = True
     return result
 
 
 def format_command_preview(subcommand: str, url: str, options: dict) -> str:
-    """Build a human-readable equivalent CLI command for the user to confirm.
-
-    The returned string is informational (used in a 'about to run' prompt). It is
-    NOT executed; the TUI calls the programmatic wrappers directly.
-
-    Args:
-        subcommand: "transcribe" or "playlist".
-        url: the input URL or path.
-        options: dict of resolved options (post-validation).
-
-    Returns:
-        A string like: `yt-transcriber transcribe -u "<url>" --language es --summarize`.
-    """
+    """Build a human-readable equivalent CLI command for the user to confirm."""
     parts = ["yt-transcriber", subcommand, "-u", f'"{url}"']
 
     lang = options.get("language")
@@ -121,11 +100,6 @@ def format_command_preview(subcommand: str, url: str, options: dict) -> str:
         limit = options.get("limit")
         if limit is not None:
             parts.extend(["--limit", str(limit)])
-
-    if options.get("summarize"):
-        parts.append("--summarize")
-    if options.get("post_kits"):
-        parts.append("--post-kits")
 
     if subcommand == "transcribe":
         if options.get("segments"):
@@ -142,8 +116,6 @@ def format_command_preview(subcommand: str, url: str, options: dict) -> str:
 _T_URL = "YouTube video URL, YouTube playlist URL, Google Drive URL, o ruta a archivo local"
 _T_LANGUAGE_TRANSCRIBE = "Auto-detect funciona pero es algo más lento. Códigos ISO 639-1: es, en, pt, fr, de, ..."
 _T_LANGUAGE_PLAYLIST = "Idioma de los subtítulos automáticos a descargar de YouTube"
-_T_SUMMARIZE = "Genera resúmenes EN + ES con Claude (incrementa tiempo y consume cuota Claude)"
-_T_POST_KITS = "LinkedIn post + Twitter thread. Activa --summarize automáticamente."
 _T_SEGMENTS = "Genera _segments.json con timestamps por segmento (útil para procesar después)"
 _T_VISUAL_EVIDENCE = "Extrae frames clave del video. Solo funciona con archivos locales. Activa --segments."
 _T_LIMIT = "Vacío = playlist completa. Número entero = procesar últimos N videos."
@@ -209,9 +181,9 @@ def prompt_input_url() -> str:
 
 def prompt_transcribe_options(input_type: InputType) -> dict:
     """Ask all transcribe-flow questions. Returns dict with options (pre-validation)."""
-    total = 5
+    total = 3
 
-    # [1/5] Language
+    # [1/3] Language
     _hint(_T_LANGUAGE_TRANSCRIBE)
     lang_choice = questionary.select(
         f"[1/{total}] Idioma del audio:",
@@ -230,47 +202,29 @@ def prompt_transcribe_options(input_type: InputType) -> dict:
     else:
         language = lang_choice
 
-    # [2/5] Summarize
-    _hint(_T_SUMMARIZE)
-    summarize = questionary.confirm(
-        f"[2/{total}] ¿Generar resúmenes (EN + ES)?",
-        default=False,
-    ).unsafe_ask()
-    console.print()
-
-    # [3/5] Post kits
-    _hint(_T_POST_KITS)
-    post_kits = questionary.confirm(
-        f"[3/{total}] ¿Generar post kits (LinkedIn + Twitter)?",
-        default=False,
-    ).unsafe_ask()
-    console.print()
-
-    # [4/5] Segments
+    # [2/3] Segments
     _hint(_T_SEGMENTS)
     segments = questionary.confirm(
-        f"[4/{total}] ¿Sidecar de segmentos JSON?",
+        f"[2/{total}] ¿Sidecar de segmentos JSON?",
         default=False,
     ).unsafe_ask()
     console.print()
 
-    # [5/5] Visual evidence (only if local)
+    # [3/3] Visual evidence (only if local)
     if input_type == InputType.LOCAL:
         _hint(_T_VISUAL_EVIDENCE)
         visual_evidence = questionary.confirm(
-            f"[5/{total}] ¿Extraer frames clave (visual evidence)?",
+            f"[3/{total}] ¿Extraer frames clave (visual evidence)?",
             default=False,
         ).unsafe_ask()
         console.print()
     else:
-        _skip(f"[5/{total}] Visual evidence: omitido (no aplica para URLs)")
+        _skip(f"[3/{total}] Visual evidence: omitido (no aplica para URLs)")
         console.print()
         visual_evidence = False
 
     return {
         "language": language,
-        "summarize": summarize,
-        "post_kits": post_kits,
         "segments": segments,
         "visual_evidence": visual_evidence,
     }
@@ -278,9 +232,9 @@ def prompt_transcribe_options(input_type: InputType) -> dict:
 
 def prompt_playlist_options() -> dict:
     """Ask all playlist-flow questions. Returns dict with options (pre-validation)."""
-    total = 4
+    total = 2
 
-    # [1/4] Limit
+    # [1/2] Limit
     while True:
         _hint(_T_LIMIT)
         limit_raw = questionary.text(
@@ -303,7 +257,7 @@ def prompt_playlist_options() -> dict:
             _warn(f"'{limit_raw}' no es un número entero.")
             continue
 
-    # [2/4] Language
+    # [2/2] Language
     _hint(_T_LANGUAGE_PLAYLIST)
     lang_choice = questionary.select(
         f"[2/{total}] Idioma de auto-subs:",
@@ -320,27 +274,9 @@ def prompt_playlist_options() -> dict:
     else:
         language = lang_choice
 
-    # [3/4] Summarize
-    _hint(_T_SUMMARIZE)
-    summarize = questionary.confirm(
-        f"[3/{total}] ¿Generar resúmenes (EN + ES) por video?",
-        default=False,
-    ).unsafe_ask()
-    console.print()
-
-    # [4/4] Post kits
-    _hint(_T_POST_KITS)
-    post_kits = questionary.confirm(
-        f"[4/{total}] ¿Generar post kits por video?",
-        default=False,
-    ).unsafe_ask()
-    console.print()
-
     return {
         "limit": limit,
         "language": language,
-        "summarize": summarize,
-        "post_kits": post_kits,
     }
 
 
@@ -354,20 +290,12 @@ def prompt_run_again() -> bool:
     return questionary.confirm("¿Otra transcripción?", default=True).unsafe_ask()
 
 
-def _print_transcribe_results(result: tuple) -> None:
-    """Pretty-print the tuple returned by run_transcribe_command."""
-    transcript_path, summary_en, summary_es, post_kits = result
-    if not any(result):
+def _print_transcribe_results(transcript_path: str | None) -> None:
+    """Pretty-print the path returned by run_transcribe_command."""
+    if not transcript_path:
         _warn("No se generó ningún archivo. Revisa los logs arriba.")
         return
-    if transcript_path:
-        _success(f"Transcript:    {transcript_path}")
-    if summary_en:
-        _success(f"Summary EN:    {summary_en}")
-    if summary_es:
-        _success(f"Summary ES:    {summary_es}")
-    if post_kits:
-        _success(f"Post kits:     {post_kits}")
+    _success(f"Transcript: {transcript_path}")
 
 
 def _print_playlist_results(stats: dict) -> None:
@@ -411,8 +339,6 @@ def _run_transcribe(url: str, input_type: InputType) -> None:
     _info_line("Subcomando:", "transcribe")
     _info_line("URL:", url)
     _info_line("Idioma:", options["language"] or "auto-detect")
-    _info_line("Summarize:", "sí" if options["summarize"] else "no")
-    _info_line("Post kits:", "sí" if options["post_kits"] else "no")
     _info_line("Segments:", "sí" if options["segments"] else "no")
     visual_label = (
         "sí" if options["visual_evidence"]
@@ -433,9 +359,6 @@ def _run_transcribe(url: str, input_type: InputType) -> None:
         url=url,
         language=options["language"],
         ffmpeg_location=None,
-        generate_post_kits=options["post_kits"],
-        generate_summary=options["summarize"],
-        reuse_transcripts=False,
         segments_override=options["segments"],
         visual_override=options["visual_evidence"],
     )
@@ -456,8 +379,6 @@ def _run_playlist(url: str) -> None:
     _info_line("URL:", url)
     _info_line("Límite:", str(options["limit"]) if options["limit"] is not None else "todos")
     _info_line("Idioma:", options["language"])
-    _info_line("Summarize:", "sí" if options["summarize"] else "no")
-    _info_line("Post kits:", "sí" if options["post_kits"] else "no")
     console.print()
     console.print("  [bold]CLI equivalente:[/bold]")
     console.print(f"    [dim]{format_command_preview('playlist', url, options)}[/dim]")
@@ -472,8 +393,6 @@ def _run_playlist(url: str) -> None:
         url=url,
         limit=options["limit"],
         language=options["language"],
-        generate_summary=options["summarize"],
-        generate_post_kits=options["post_kits"],
     )
 
     _section("Resultado")

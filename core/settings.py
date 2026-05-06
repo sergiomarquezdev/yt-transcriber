@@ -1,14 +1,8 @@
-"""Shared application settings for the entire YouTube Content Suite.
+"""Shared application settings for yt-transcriber.
 
-This module contains the validated Pydantic settings used across all modules
-(transcriber, script generator, content ideation, frontend).
-
-All environment variables, API keys, model names, and directory paths are
-centralized here to provide a single source of truth for configuration.
+This module contains the validated Pydantic settings for the CLI/TUI.
 """
 
-import contextlib
-import os
 import sys
 from pathlib import Path
 from typing import Literal
@@ -17,29 +11,27 @@ from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Cargar variables de entorno desde un archivo .env si existe
+# Load .env if present
 load_dotenv()
 
 
 class AppSettings(BaseSettings):
-    """
-    Configuraciones de la aplicación, validadas con Pydantic.
-    Lee variables de entorno y aplica valores por defecto.
-    """
+    """Validated application settings."""
 
     model_config = SettingsConfigDict(case_sensitive=False)
 
+    # ========== WHISPER ==========
     WHISPER_MODEL_NAME: str = Field(
         default="base",
-        description="Modelo de Whisper (base, small, medium, large-v3, distil-large-v3, etc.)",
+        description="Whisper model (base, small, medium, large-v3, distil-large-v3, ...)",
     )
     WHISPER_DEVICE: Literal["cpu", "cuda", "auto"] = Field(
         default="auto",
-        description="Dispositivo para ejecutar Whisper (auto detecta CUDA via CTranslate2)",
+        description="Compute device (auto detects CUDA via CTranslate2)",
     )
     WHISPER_COMPUTE_TYPE: str = Field(
         default="default",
-        description="Tipo de computo CTranslate2 (int8_float16 para GPU, int8 para CPU, default auto)",
+        description="CTranslate2 compute type (int8_float16 for GPU, int8 for CPU)",
     )
     WHISPER_BEAM_SIZE: int = Field(
         default=5,
@@ -47,190 +39,49 @@ class AppSettings(BaseSettings):
     )
     WHISPER_VAD_FILTER: bool = Field(
         default=True,
-        description="Silero VAD filter para saltar silencios automaticamente",
+        description="Silero VAD filter to skip silences",
     )
+
+    # ========== PATHS ==========
     TEMP_DOWNLOAD_DIR: Path = Field(
         default=Path("temp_files/"),
-        description="Directorio para archivos temporales",
+        description="Directory for temporary files",
     )
-    OUTPUT_TRANSCRIPTS_DIR: Path = Field(
-        default=Path("output/transcripts/"),
-        description="Directorio para transcripciones generadas",
+    OUTPUT_BASE_DIR: Path = Field(
+        default=Path("output/"),
+        description="Base directory; each video gets its own subfolder here",
     )
+
+    # ========== LOGGING / FFMPEG ==========
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO",
-        description="Nivel de logging",
+        description="Logging level",
     )
     FFMPEG_LOCATION: str = Field(
         default="",
-        description="Ruta personalizada a FFmpeg (opcional)",
+        description="Custom FFmpeg path (optional)",
     )
 
-    # ========== CLAUDE CLI CONFIGURATION ==========
-
-    CLAUDE_CLI_PATH: str = Field(
-        default="claude",
-        description="Path to Claude CLI executable",
-    )
-    CLAUDE_CLI_TIMEOUT: int = Field(
-        default=180,
-        description="Claude CLI timeout in seconds",
-    )
-    DEFAULT_LLM_MODEL: str = Field(
-        default="sonnet",
-        description="Default Claude model (opus/sonnet/haiku)",
-    )
-
-    # ========== MODEL SELECTION (Claude model names: opus/sonnet/haiku) ==========
-
-    PRO_MODEL: str = Field(
-        default="opus",
-        description="Modelo premium para synthesis y script generation",
-    )
-    SUMMARIZER_MODEL: str = Field(
-        default="sonnet",
-        description="Modelo para resúmenes de video",
-    )
-    PATTERN_ANALYZER_MODEL: str = Field(
-        default="sonnet",
-        description="Modelo para análisis de patrones",
-    )
-    TRANSLATOR_MODEL: str = Field(
-        default="haiku",
-        description="Modelo para traducciones simples",
-    )
-    QUERY_OPTIMIZER_MODEL: str = Field(
-        default="haiku",
-        description="Modelo para optimización de queries",
-    )
-
-    # ========== DIRECTORY CONFIGURATION ==========
-
-    SCRIPT_OUTPUT_DIR: Path = Field(
-        default=Path("output/scripts/"),
-        description="Directorio para guiones generados",
-    )
-    ANALYSIS_OUTPUT_DIR: Path = Field(
-        default=Path("output/analysis/"),
-        description="Directorio para análisis y síntesis",
-    )
-    TEMP_BATCH_DIR: Path = Field(
-        default=Path("temp_batch/"),
-        description="Directorio temporal para batch processing",
-    )
-    SUMMARY_OUTPUT_DIR: Path = Field(
-        default=Path("output/summaries/"),
-        description="Directorio para resúmenes generados",
-    )
-
-    # Transcript cache (to speed up iterative runs of the script generator)
-    TRANSCRIPT_CACHE_ENABLED: bool = Field(
-        default=False,
-        description="Habilita cacheo/reutilización de transcripciones por video_id",
-    )
-    TRANSCRIPT_CACHE_DIR: Path = Field(
-        default=Path("output/analysis/transcripts_cache/"),
-        description="Directorio para cachear transcripciones por video_id",
-    )
+    # ========== TRANSCRIPT ARTIFACTS ==========
     TRANSCRIPT_SEGMENTS_ENABLED: bool = Field(
         default=False,
-        description="Habilita sidecar JSON con segmentos timestamped de Whisper",
+        description="Emit timestamped segments JSON sidecar",
     )
     VISUAL_EVIDENCE_ENABLED: bool = Field(
         default=False,
-        description="Habilita extracción de evidencia visual por segmento",
+        description="Extract one frame per transcript segment (local files only)",
     )
     VISUAL_EVIDENCE_MIN_SEGMENT_SECONDS: float = Field(
         default=1.0,
-        description="Duración mínima de segmento para considerar evidencia visual",
-    )
-
-    # YouTube search configuration
-    YT_SEARCH_TIMEOUT_SECONDS: int = Field(
-        default=180,
-        description="Timeout (segundos) para la búsqueda con yt-dlp",
-    )
-
-    # ========== CONTENT IDEATION ENGINE CONFIGURATION ==========
-
-    # SerpAPI for search volume data
-    SERPAPI_API_KEY: str = Field(
-        default="",
-        description="SerpAPI key para volumen de búsqueda (2500 requests/mes gratis)",
-    )
-
-    # Reddit API for trending discussions
-    REDDIT_CLIENT_ID: str = Field(
-        default="",
-        description="Reddit API client ID (https://www.reddit.com/prefs/apps)",
-    )
-    REDDIT_CLIENT_SECRET: str = Field(
-        default="",
-        description="Reddit API client secret",
-    )
-    REDDIT_USER_AGENT: str = Field(
-        default="yt-content-ideation/1.0",
-        description="Reddit API user agent",
-    )
-
-    # Trends output directory
-    TRENDS_OUTPUT_DIR: Path = Field(
-        default=Path("output/trends/"),
-        description="Directorio para análisis de tendencias",
-    )
-
-    # ========== POST KITS VALIDATION (PARAMETRIZABLE) ==========
-    # LinkedIn
-    POST_KITS_LINKEDIN_MIN_CHARS: int = Field(
-        default=800,
-        description="Mínimo de caracteres para el post de LinkedIn",
-    )
-    POST_KITS_LINKEDIN_MAX_CHARS: int = Field(
-        default=1200,
-        description="Máximo de caracteres para el post de LinkedIn",
-    )
-    POST_KITS_LINKEDIN_MIN_INSIGHTS: int = Field(
-        default=4,
-        description="Mínimo de insights en el post de LinkedIn",
-    )
-    POST_KITS_LINKEDIN_MAX_INSIGHTS: int = Field(
-        default=8,
-        description="Máximo de insights en el post de LinkedIn",
-    )
-
-    # Twitter / X
-    POST_KITS_TWITTER_MIN_TWEETS: int = Field(
-        default=8,
-        description="Mínimo de tweets por hilo",
-    )
-    POST_KITS_TWITTER_MAX_TWEETS: int = Field(
-        default=12,
-        description="Máximo de tweets por hilo",
-    )
-    POST_KITS_TWITTER_MAX_CHARS_PER_TWEET: int = Field(
-        default=280,
-        description="Máximo de caracteres por tweet",
-    )
-    POST_KITS_TWITTER_MAX_HASHTAGS: int = Field(
-        default=3,
-        description="Máximo de hashtags permitidos (se añaden al último tweet)",
+        description="Minimum segment duration to consider visual evidence",
     )
 
 
-# Crear una instancia global de las configuraciones validadas
+# Build the global instance
 try:
     settings = AppSettings()
-
-    # Aliases de entorno para compatibilidad retroactiva
-    # OUTPUT_TRENDS_DIR -> TRENDS_OUTPUT_DIR
-    trends_alias = os.getenv("OUTPUT_TRENDS_DIR")
-    if trends_alias:
-        # Mantener el valor por defecto si el alias no es válido
-        with contextlib.suppress(Exception):
-            settings.TRENDS_OUTPUT_DIR = Path(trends_alias)
-
 except Exception as e:
-    sys.stderr.write(f"CRITICAL: Error al cargar o validar la configuración: {e}\n")
+    sys.stderr.write(f"CRITICAL: Failed to load/validate settings: {e}\n")
     sys.exit(1)
 
 
