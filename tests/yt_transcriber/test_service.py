@@ -17,18 +17,13 @@ class TestProcessTranscription:
         """Set up common mocks for process_transcription."""
         with patch("yt_transcriber.service.settings") as mock_settings:
             mock_settings.TEMP_DOWNLOAD_DIR = temp_dir / "temp"
-            mock_settings.OUTPUT_TRANSCRIPTS_DIR = temp_dir / "transcripts"
-            mock_settings.SUMMARY_OUTPUT_DIR = temp_dir / "summaries"
-            mock_settings.TRANSCRIPT_CACHE_DIR = temp_dir / "cache"
-            mock_settings.TRANSCRIPT_CACHE_ENABLED = False
-            mock_settings.SUMMARIZER_MODEL = "sonnet"
+            mock_settings.OUTPUT_BASE_DIR = temp_dir / "output"
             mock_settings.TRANSCRIPT_SEGMENTS_ENABLED = False
             mock_settings.VISUAL_EVIDENCE_ENABLED = False
             mock_settings.VISUAL_EVIDENCE_MIN_SEGMENT_SECONDS = 1.0
 
             (temp_dir / "temp").mkdir(exist_ok=True)
-            (temp_dir / "transcripts").mkdir(exist_ok=True)
-            (temp_dir / "summaries").mkdir(exist_ok=True)
+            (temp_dir / "output").mkdir(exist_ok=True)
 
             yield mock_settings
 
@@ -67,26 +62,20 @@ class TestProcessTranscription:
                         language="en",
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "test_video_vid_test123_job_1" / "test_video_vid_test123_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Transcribed text")
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "test_video"
-                    mock_utils.cleanup_temp_dir = MagicMock()
 
-                    # Default: generate_summary=False (only transcription)
                     result = process_transcription(
                         youtube_url="https://www.youtube.com/watch?v=test123",
                         title="Test Video",
                         model=mock_whisper_model,
-                        # generate_summary defaults to False
                     )
 
-                    transcript, summary_en, summary_es, post_kits = result
-
-                    assert transcript is not None
-                    assert summary_en is None
-                    assert summary_es is None
+                    assert result is not None
+                    assert result == transcript_path
 
     def test_returns_none_on_download_error(self, mock_dependencies, mock_whisper_model):
         """Test that None is returned on download error."""
@@ -103,7 +92,7 @@ class TestProcessTranscription:
                     model=mock_whisper_model,
                 )
 
-                assert result == (None, None, None, None)
+                assert result is None
 
     def test_returns_none_on_transcription_error(
         self, mock_dependencies, mock_whisper_model, temp_dir
@@ -132,7 +121,7 @@ class TestProcessTranscription:
                         model=mock_whisper_model,
                     )
 
-                    assert result == (None, None, None, None)
+                    assert result is None
 
     # =========================================================================
     # INPUT TYPE DETECTION TESTS
@@ -160,14 +149,12 @@ class TestProcessTranscription:
                         language="en",
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "video_vid_video_job_1" / "video_vid_video_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Text")
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "video"
-                    mock_utils.cleanup_temp_dir = MagicMock()
 
-                    # generate_summary=False is default, no summary generated
                     process_transcription(
                         youtube_url=str(local_file),
                         title="",
@@ -196,15 +183,12 @@ class TestProcessTranscription:
                         language="en",
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "test_vid_drive_abc123_job_1" / "test_vid_drive_abc123_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Text")
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "test"
-                    mock_utils.cleanup_temp_dir = MagicMock()
 
-                    # Google Drive URL - detection happens automatically
-                    # generate_summary=False is default
                     process_transcription(
                         youtube_url="https://drive.google.com/file/d/abc123/view",
                         title="Test",
@@ -214,112 +198,7 @@ class TestProcessTranscription:
                     mock_download.assert_called_once()
 
     # =========================================================================
-    # GENERATE SUMMARY FLAG TESTS
-    # =========================================================================
-
-    def test_default_no_summary(self, mock_dependencies, mock_whisper_model, temp_dir):
-        """Test that default behavior (generate_summary=False) skips summary."""
-        with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
-            with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
-                with patch("yt_transcriber.service.utils") as mock_utils:
-                    with patch("yt_transcriber.service.create_summary") as mock_summary:
-                        audio_path = temp_dir / "temp" / "audio.wav"
-                        audio_path.parent.mkdir(exist_ok=True)
-                        audio_path.touch()
-
-                        mock_download.return_value = MagicMock(
-                            audio_path=audio_path,
-                            video_path=None,
-                            video_id="test123",
-                        )
-                        mock_transcribe.return_value = MagicMock(
-                            text="Text",
-                            language="en",
-                        )
-
-                        transcript_path = temp_dir / "transcripts" / "test.txt"
-                        transcript_path.parent.mkdir(exist_ok=True)
-                        transcript_path.write_text("Text")
-                        mock_utils.save_transcription_to_file.return_value = transcript_path
-                        mock_utils.normalize_title_for_filename.return_value = "test"
-                        mock_utils.cleanup_temp_dir = MagicMock()
-
-                        # Default: generate_summary=False
-                        result = process_transcription(
-                            youtube_url="https://www.youtube.com/watch?v=test",
-                            title="Test",
-                            model=mock_whisper_model,
-                        )
-
-                        # Should not call generate_summary when generate_summary=False
-                        mock_summary.assert_not_called()
-                        transcript, summary_en, summary_es, post_kits = result
-                        assert transcript is not None
-                        assert summary_en is None
-
-    def test_generate_summary_true_calls_summarizer(
-        self, mock_dependencies, mock_whisper_model, temp_dir
-    ):
-        """Test that generate_summary=True triggers summary generation."""
-        with patch("yt_transcriber.service.download_and_extract_audio") as mock_download:
-            with patch("yt_transcriber.service.transcribe_audio_file") as mock_transcribe:
-                with patch("yt_transcriber.service.utils") as mock_utils:
-                    with patch("yt_transcriber.service.create_summary") as mock_summary:
-                        with patch("yt_transcriber.service.is_model_configured") as mock_model_cfg:
-                            with patch(
-                                "yt_transcriber.service.ScriptTranslator"
-                            ) as mock_translator:
-                                audio_path = temp_dir / "temp" / "audio.wav"
-                                audio_path.parent.mkdir(exist_ok=True)
-                                audio_path.touch()
-
-                                mock_download.return_value = MagicMock(
-                                    audio_path=audio_path,
-                                    video_path=None,
-                                    video_id="test123",
-                                )
-                                mock_transcribe.return_value = MagicMock(
-                                    text="Text",
-                                    language="en",
-                                )
-
-                                transcript_path = temp_dir / "transcripts" / "test.txt"
-                                transcript_path.parent.mkdir(exist_ok=True)
-                                transcript_path.write_text("Text")
-                                mock_utils.save_transcription_to_file.return_value = transcript_path
-                                mock_utils.normalize_title_for_filename.return_value = "test"
-                                mock_utils.cleanup_temp_dir = MagicMock()
-
-                                # Model is configured
-                                mock_model_cfg.return_value = (True, "")
-
-                                # Mock summary result
-                                mock_summary_obj = MagicMock()
-                                mock_summary_obj.to_markdown.return_value = "# Summary"
-                                mock_summary.return_value = mock_summary_obj
-
-                                # Mock translator
-                                mock_translator_instance = MagicMock()
-                                mock_translator_instance.translate_summary.return_value = (
-                                    mock_summary_obj
-                                )
-                                mock_translator.return_value = mock_translator_instance
-
-                                result = process_transcription(
-                                    youtube_url="https://www.youtube.com/watch?v=test",
-                                    title="Test",
-                                    model=mock_whisper_model,
-                                    generate_summary=True,
-                                )
-
-                                # Should call generate_summary when generate_summary=True
-                                mock_summary.assert_called_once()
-                                transcript, summary_en, summary_es, post_kits = result
-                                assert transcript is not None
-                                assert summary_en is not None
-
-    # =========================================================================
-    # CLEANUP TESTS
+    # SEGMENT / VISUAL TOGGLE TESTS
     # =========================================================================
 
     def test_resolve_segments_and_visual_uses_env_defaults(self, mock_dependencies):
@@ -390,10 +269,10 @@ class TestProcessTranscription:
                         segments=segments,
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "test_vid_test123_job_1" / "test_vid_test123_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Text")
-                    segments_path = temp_dir / "transcripts" / "test_segments.json"
+                    segments_path = transcript_path.parent / "test_segments.json"
 
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "test"
@@ -434,8 +313,8 @@ class TestProcessTranscription:
                         segments=[TranscriptSegment(start=0.0, end=2.0, text="hello")],
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "test_vid_test123_job_1" / "test_vid_test123_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Text")
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "test"
@@ -473,10 +352,10 @@ class TestProcessTranscription:
                         segments=segments,
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "test_vid_test123_job_1" / "test_vid_test123_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Text")
-                    segments_path = temp_dir / "transcripts" / "test_segments.json"
+                    segments_path = transcript_path.parent / "test_segments.json"
 
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "test"
@@ -516,10 +395,10 @@ class TestProcessTranscription:
                                 segments=[TranscriptSegment(start=0.0, end=2.0, text="hello")],
                             )
 
-                            transcript_path = temp_dir / "transcripts" / "test.txt"
-                            transcript_path.parent.mkdir(exist_ok=True)
+                            transcript_path = temp_dir / "output" / "test_vid_test123_job_1" / "test_vid_test123_job_1.txt"
+                            transcript_path.parent.mkdir(parents=True, exist_ok=True)
                             transcript_path.write_text("Text")
-                            segments_path = temp_dir / "transcripts" / "test_segments.json"
+                            segments_path = transcript_path.parent / "test_segments.json"
                             mock_utils.save_transcription_to_file.return_value = transcript_path
                             mock_utils.normalize_title_for_filename.return_value = "test"
                             mock_utils.derive_sibling_path.return_value = segments_path
@@ -566,13 +445,14 @@ class TestProcessTranscription:
                             segments=segments,
                         )
 
-                        transcript_path = temp_dir / "transcripts" / "test.txt"
-                        transcript_path.parent.mkdir(exist_ok=True)
+                        output_stem = "video_vid_video_job_1"
+                        transcript_path = temp_dir / "output" / output_stem / f"{output_stem}.txt"
+                        transcript_path.parent.mkdir(parents=True, exist_ok=True)
                         transcript_path.write_text("Text")
                         mock_utils.save_transcription_to_file.return_value = transcript_path
                         mock_utils.normalize_title_for_filename.return_value = "video"
                         mock_utils.derive_sibling_path.return_value = (
-                            temp_dir / "transcripts" / "test_segments.json"
+                            transcript_path.parent / f"{output_stem}_segments.json"
                         )
 
                         process_transcription(
@@ -586,7 +466,8 @@ class TestProcessTranscription:
                         kwargs = mock_extract.call_args.kwargs
                         assert kwargs["video_path"] == local_file
                         assert kwargs["segments"] == segments
-                        assert kwargs["output_dir"] == mock_dependencies.OUTPUT_TRANSCRIPTS_DIR
+                        # output_dir is the per-video subdir under OUTPUT_BASE_DIR
+                        assert kwargs["output_dir"].parent == mock_dependencies.OUTPUT_BASE_DIR
 
     def test_visual_evidence_ffmpeg_failure_non_fatal_in_process_flow(
         self, mock_dependencies, mock_whisper_model, temp_dir
@@ -615,10 +496,11 @@ class TestProcessTranscription:
                             segments=segments,
                         )
 
-                        transcript_path = temp_dir / "transcripts" / "test.txt"
-                        transcript_path.parent.mkdir(exist_ok=True)
+                        output_stem = "video_vid_video_job_1"
+                        transcript_path = temp_dir / "output" / output_stem / f"{output_stem}.txt"
+                        transcript_path.parent.mkdir(parents=True, exist_ok=True)
                         transcript_path.write_text("Text")
-                        segments_path = temp_dir / "transcripts" / "test_segments.json"
+                        segments_path = transcript_path.parent / f"{output_stem}_segments.json"
 
                         mock_utils.save_transcription_to_file.return_value = transcript_path
                         mock_utils.normalize_title_for_filename.return_value = "video"
@@ -632,7 +514,7 @@ class TestProcessTranscription:
                             visual_override=True,
                         )
 
-                        assert result[0] == transcript_path
+                        assert result == transcript_path
                         mock_utils.save_segments_json.assert_called_once_with(
                             segments=segments,
                             language="en",
@@ -701,6 +583,37 @@ class TestProcessTranscription:
                 assert result == []
                 mock_logger.warning.assert_called()
 
+    def test_transcript_lives_in_per_video_subdir(
+        self, mock_dependencies, mock_whisper_model, temp_dir
+    ):
+        """The transcript .txt is written under output/<stem>/<stem>.txt — never directly under output/."""
+        with patch("yt_transcriber.service.download_and_extract_audio") as mock_dl, patch(
+            "yt_transcriber.service.transcribe_audio_file"
+        ) as mock_tr:
+            mock_dl.return_value = MagicMock(
+                audio_path=temp_dir / "fake.wav",
+                video_path=None,
+                video_id="ABC123",
+            )
+            mock_tr.return_value = MagicMock(
+                text="hello world",
+                language="en",
+                segments=[],
+            )
+
+            result = process_transcription(
+                youtube_url="https://www.youtube.com/watch?v=ABC123",
+                title="Example Video",
+                model=mock_whisper_model,
+            )
+
+            assert result is not None, "expected a Path, got None"
+            assert result.suffix == ".txt"
+            # The transcript must sit one level deep: output/<stem>/<stem>.txt
+            assert result.parent.parent == mock_dependencies.OUTPUT_BASE_DIR
+            assert result.parent.name == result.stem
+            assert "ABC123" in result.stem
+
     @pytest.mark.skip(
         reason="Cleanup now handled by TemporaryDirectory context manager (Issue #12)"
     )
@@ -723,14 +636,13 @@ class TestProcessTranscription:
                         language="en",
                     )
 
-                    transcript_path = temp_dir / "transcripts" / "test.txt"
-                    transcript_path.parent.mkdir(exist_ok=True)
+                    transcript_path = temp_dir / "output" / "test_vid_test123_job_1" / "test_vid_test123_job_1.txt"
+                    transcript_path.parent.mkdir(parents=True, exist_ok=True)
                     transcript_path.write_text("Text")
                     mock_utils.save_transcription_to_file.return_value = transcript_path
                     mock_utils.normalize_title_for_filename.return_value = "test"
                     mock_utils.cleanup_temp_dir = MagicMock()
 
-                    # Default: generate_summary=False
                     process_transcription(
                         youtube_url="https://www.youtube.com/watch?v=test",
                         title="Test",
