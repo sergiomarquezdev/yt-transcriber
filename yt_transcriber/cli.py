@@ -1,4 +1,4 @@
-"""CLI for YouTube video transcription and summarization."""
+"""CLI for YouTube video transcription."""
 
 import argparse
 import logging
@@ -55,12 +55,9 @@ def process_transcription(
     model: Any,
     language: str | None = None,
     ffmpeg_location: str | None = None,
-    generate_post_kits: bool = False,
-    generate_summary: bool = False,
-    reuse_transcripts: bool = False,
     segments_override: bool | None = None,
     visual_override: bool | None = None,
-) -> tuple[Path | None, Path | None, Path | None, Path | None]:
+) -> Path | None:
     """Delegate transcription pipeline to the service implementation."""
     from yt_transcriber import service as _service
 
@@ -70,23 +67,19 @@ def process_transcription(
         model=model,
         language=language,
         ffmpeg_location=ffmpeg_location,
-        generate_post_kits=generate_post_kits,
-        generate_summary=generate_summary,
-        reuse_transcripts=reuse_transcripts,
         segments_override=segments_override,
         visual_override=visual_override,
     )
 
 
 def _ffmpeg_available(ffmpeg_location: str | None) -> bool:
-    """Chequea si FFmpeg esta disponible (ruta explicita o en PATH)."""
     if ffmpeg_location:
         return Path(ffmpeg_location).exists()
     return shutil.which("ffmpeg") is not None or shutil.which("ffmpeg.exe") is not None
 
 
 def command_transcribe(args):
-    """Command handler for transcribing a single YouTube video or local file."""
+    """Command handler for transcribing a single video / Drive / local file."""
     setup_logging()
 
     is_local_file = False
@@ -142,33 +135,20 @@ def command_transcribe(args):
         title = get_youtube_title(args.url)
         logger.info(f"Titulo extraido: {title}")
 
-    # --post-kits implies --summarize (post kits requires summary)
-    generate_summary = getattr(args, "summarize", False) or args.post_kits
-
-    # Use context manager for auto-cleanup of model memory
     with whisper_model_context() as model:
-        transcript_path, summary_path_en, summary_path_es, post_kits_path = process_transcription(
+        transcript_path = process_transcription(
             youtube_url=args.url,
             title=title,
             model=model,
             language=args.language,
             ffmpeg_location=args.ffmpeg_location,
-            generate_post_kits=args.post_kits,
-            generate_summary=generate_summary,
             segments_override=args.segments_override,
             visual_override=args.visual_override,
         )
 
     if transcript_path:
         logger.info("Proceso completado exitosamente.")
-        logger.info("Archivos generados:")
         logger.info(f"Transcripcion: {transcript_path}")
-        if summary_path_en:
-            logger.info(f"Resumen (EN): {summary_path_en}")
-        if summary_path_es:
-            logger.info(f"Resumen (ES): {summary_path_es}")
-        if post_kits_path:
-            logger.info(f"Post Kits (LinkedIn + Twitter): {post_kits_path}")
         sys.exit(0)
     else:
         logger.error("El proceso de transcripcion fallo.")
@@ -179,27 +159,10 @@ def run_transcribe_command(
     url: str,
     language: str | None = None,
     ffmpeg_location: str | None = None,
-    generate_post_kits: bool = False,
-    generate_summary: bool = False,
-    reuse_transcripts: bool = False,
     segments_override: bool | None = None,
     visual_override: bool | None = None,
-) -> tuple[str | None, str | None, str | None, str | None]:
-    """Wrapper function for transcription to be called programmatically.
-
-    Args:
-        url: YouTube URL, Google Drive URL, or local file path
-        language: Language code for transcription (None for auto-detect)
-        ffmpeg_location: Custom FFmpeg path
-        generate_post_kits: Generate LinkedIn + Twitter posts (implies generate_summary)
-        generate_summary: Generate EN + ES summaries
-        reuse_transcripts: Reuse cached transcripts
-        segments_override: Optional CLI-style override for segment sidecar output
-        visual_override: Optional CLI-style override for visual evidence extraction
-
-    Returns:
-        Tuple of (transcript_path, summary_en_path, summary_es_path, post_kits_path)
-    """
+) -> str | None:
+    """Programmatic transcription wrapper (used by the TUI)."""
     setup_logging()
 
     is_local_file = False
@@ -213,61 +176,48 @@ def run_transcribe_command(
             logger.info(f"Local file detected: {local_file_path}")
         else:
             logger.error(f"Invalid input: {url} is not a valid URL or existing file")
-            return None, None, None, None
+            return None
     else:
         from core.media_downloader import is_google_drive_url
 
         is_drive_url = is_google_drive_url(url)
-
         if not is_drive_url and not (
             url.startswith("https://www.youtube.com/") or url.startswith("https://youtu.be/")
         ):
             logger.error(f"Invalid URL: {url} (must be YouTube or Google Drive)")
-            return None, None, None, None
+            return None
 
     title = local_file_path.stem if is_local_file and local_file_path else get_youtube_title(url)
-
     lang = None if language == "Auto-detectar" else language
 
     try:
         with whisper_model_context() as model:
-            transcript_path, summary_path_en, summary_path_es, post_kits_path = (
-                process_transcription(
-                    youtube_url=url,
-                    title=title,
-                    model=model,
-                    language=lang,
-                    ffmpeg_location=ffmpeg_location,
-                    generate_post_kits=generate_post_kits,
-                    generate_summary=generate_summary,
-                    reuse_transcripts=reuse_transcripts,
-                    segments_override=segments_override,
-                    visual_override=visual_override,
-                )
+            transcript_path = process_transcription(
+                youtube_url=url,
+                title=title,
+                model=model,
+                language=lang,
+                ffmpeg_location=ffmpeg_location,
+                segments_override=segments_override,
+                visual_override=visual_override,
             )
     except Exception as e:
         logger.error(f"Transcription failed: {e}")
-        return None, None, None, None
+        return None
 
-    if transcript_path:
-        return (
-            str(transcript_path),
-            str(summary_path_en) if summary_path_en else None,
-            str(summary_path_es) if summary_path_es else None,
-            str(post_kits_path) if post_kits_path else None,
-        )
-    else:
-        return None, None, None, None
+    return str(transcript_path) if transcript_path else None
 
 
 def command_playlist(args):
-    """Command handler for downloading auto-subs from a YouTube playlist."""
+    """Download auto-subs from a YouTube playlist into one folder per video."""
     setup_logging()
 
     import core.media_downloader as _dl
     from core.settings import settings as app_settings
+    from datetime import datetime
 
-    # 1) Extract playlist entries
+    from yt_transcriber.utils import normalize_title_for_filename
+
     logger.info(f"Extracting playlist entries from: {args.url}")
     try:
         entries = _dl.extract_playlist_entries(args.url)
@@ -281,19 +231,11 @@ def command_playlist(args):
         print("No videos found in the playlist.")
         return {"successful": 0, "failed": 0, "files": []}
 
-    # 2) Slice to last N if --limit is set
     if args.limit and args.limit > 0:
         entries = entries[-args.limit :]
 
     total = len(entries)
     logger.info(f"Processing {total} video(s) from playlist")
-
-    # --post-kits implies --summarize
-    generate_summary = getattr(args, "summarize", False) or getattr(args, "post_kits", False)
-    generate_post_kits_flag = getattr(args, "post_kits", False)
-
-    output_dir = app_settings.OUTPUT_TRANSCRIPTS_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     completed = 0
     failed = 0
@@ -303,52 +245,36 @@ def command_playlist(args):
         logger.info(f"[{i}/{total}] {entry.title}")
         print(f"\n[{i}/{total}] {entry.title}")
 
+        normalized = normalize_title_for_filename(entry.title)
+        unique_job_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        stem = f"{normalized}_vid_{entry.video_id}_job_{unique_job_id}"
+        entry_dir = app_settings.OUTPUT_BASE_DIR / stem
+        entry_dir.mkdir(parents=True, exist_ok=True)
+
         try:
-            txt_path = _dl.download_auto_subtitles(
+            raw_path = _dl.download_auto_subtitles(
                 video_url=entry.url,
-                output_dir=output_dir,
+                output_dir=entry_dir,
                 lang=args.language,
             )
 
-            if txt_path is None:
+            if raw_path is None:
                 logger.warning(f"No subtitles found for: {entry.title}")
                 print(f"  -> No auto-subs ({args.language}) available, skipping.")
+                # Cleanup empty per-video folder so the user doesn't see ghosts
+                try:
+                    entry_dir.rmdir()
+                except OSError:
+                    pass
                 failed += 1
                 continue
 
-            print(f"  -> Transcript saved: {txt_path}")
-            files.append(str(txt_path))
-
-            # Optional: generate summaries
-            if generate_summary:
-                from yt_transcriber.service import generate_summary_outputs
-
-                transcript_text = txt_path.read_text(encoding="utf-8")
-                from yt_transcriber.utils import normalize_title_for_filename
-
-                normalized = normalize_title_for_filename(entry.title)
-                output_base = f"{normalized}_vid_{entry.video_id}"
-
-                try:
-                    s_en, s_es, pk = generate_summary_outputs(
-                        transcript_text=transcript_text,
-                        video_title=entry.title,
-                        video_url=entry.url,
-                        video_id=entry.video_id,
-                        output_filename_base=output_base,
-                        generate_post_kits=generate_post_kits_flag,
-                        is_local_file=False,
-                    )
-                    if s_en:
-                        print(f"  -> Summary (EN): {s_en}")
-                    if s_es:
-                        print(f"  -> Summary (ES): {s_es}")
-                    if pk:
-                        print(f"  -> Post Kits: {pk}")
-                except Exception as e:
-                    logger.warning(f"Summary generation failed for {entry.title}: {e}")
-                    print(f"  -> Summary failed: {e}", file=sys.stderr)
-
+            # Rename <video_id>.txt to <stem>.txt for consistency with transcribe
+            final_path = entry_dir / f"{stem}.txt"
+            if raw_path != final_path:
+                raw_path.rename(final_path)
+            print(f"  -> Transcript saved: {final_path}")
+            files.append(str(final_path))
             completed += 1
 
         except Exception as e:
@@ -357,122 +283,76 @@ def command_playlist(args):
             failed += 1
             continue
 
-    # Final summary
     print(f"\nCompleted: {completed}/{total}, Failed: {failed}")
     logger.info(f"Playlist batch done. Completed: {completed}/{total}, Failed: {failed}")
     return {"successful": completed, "failed": failed, "files": files}
 
 
 def main():
-    """Punto de entrada principal para el CLI."""
+    """Entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description="YouTube Video Transcriber & Summarizer",
+        description="YouTube Video Transcriber",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponibles")
 
-    # Subcommand: transcribe
+    # transcribe
     transcribe_parser = subparsers.add_parser(
         "transcribe",
         help="Transcribe un video de YouTube, Google Drive o archivo local",
     )
     transcribe_parser.add_argument(
-        "-u",
-        "--url",
-        required=True,
-        type=str,
+        "-u", "--url", required=True, type=str,
         help="URL de YouTube/Google Drive o ruta a archivo local.",
     )
     transcribe_parser.add_argument(
-        "-l",
-        "--language",
-        type=str,
-        default=None,
+        "-l", "--language", type=str, default=None,
         help="Codigo de idioma (ej. 'en', 'es') para forzar la transcripcion.",
     )
     transcribe_parser.add_argument(
-        "--ffmpeg-location",
-        type=str,
-        default=None,
+        "--ffmpeg-location", type=str, default=None,
         help="Ruta personalizada a FFmpeg.",
-    )
-    transcribe_parser.add_argument(
-        "--summarize",
-        action="store_true",
-        help="Generar resumenes EN + ES ademas de la transcripcion.",
-    )
-    transcribe_parser.add_argument(
-        "--post-kits",
-        action="store_true",
-        help="Generar LinkedIn post y Twitter thread (implica --summarize).",
     )
 
     segments_group = transcribe_parser.add_mutually_exclusive_group()
     segments_group.add_argument(
-        "--segments",
-        dest="segments_override",
-        action="store_true",
+        "--segments", dest="segments_override", action="store_true",
         help="Habilitar sidecar JSON de segmentos timestamped.",
     )
     segments_group.add_argument(
-        "--no-segments",
-        dest="segments_override",
-        action="store_false",
+        "--no-segments", dest="segments_override", action="store_false",
         help="Deshabilitar sidecar JSON de segmentos timestamped.",
     )
 
     visual_group = transcribe_parser.add_mutually_exclusive_group()
     visual_group.add_argument(
-        "--visual-evidence",
-        dest="visual_override",
-        action="store_true",
+        "--visual-evidence", dest="visual_override", action="store_true",
         help="Habilitar extracción de frames por segmento (solo archivos locales en V1).",
     )
     visual_group.add_argument(
-        "--no-visual-evidence",
-        dest="visual_override",
-        action="store_false",
+        "--no-visual-evidence", dest="visual_override", action="store_false",
         help="Deshabilitar extracción de evidencia visual por segmento.",
     )
 
     transcribe_parser.set_defaults(segments_override=None, visual_override=None)
 
-    # Subcommand: playlist
+    # playlist
     playlist_parser = subparsers.add_parser(
         "playlist",
         help="Descarga auto-subs de una playlist de YouTube en batch",
     )
     playlist_parser.add_argument(
-        "-u",
-        "--url",
-        required=True,
-        type=str,
+        "-u", "--url", required=True, type=str,
         help="URL de la playlist de YouTube.",
     )
     playlist_parser.add_argument(
-        "-n",
-        "--limit",
-        type=int,
-        default=None,
+        "-n", "--limit", type=int, default=None,
         help="Ultimos N videos de la playlist (default: todos).",
     )
     playlist_parser.add_argument(
-        "-l",
-        "--language",
-        type=str,
-        default="es",
+        "-l", "--language", type=str, default="es",
         help="Idioma de los subtitulos automaticos (default: es).",
-    )
-    playlist_parser.add_argument(
-        "--summarize",
-        action="store_true",
-        help="Generar resumenes EN + ES para cada video.",
-    )
-    playlist_parser.add_argument(
-        "--post-kits",
-        action="store_true",
-        help="Generar LinkedIn post y Twitter thread (implica --summarize).",
     )
 
     args = parser.parse_args()
@@ -490,34 +370,17 @@ def run_playlist_command(
     url: str,
     limit: int | None = None,
     language: str = "es",
-    generate_summary: bool = False,
-    generate_post_kits: bool = False,
 ) -> dict:
-    """Programmatic API mirror of command_playlist.
-
-    Builds a Namespace and invokes command_playlist while catching SystemExit and
-    Exception so callers (e.g. the TUI) can handle errors without dying.
-
-    Returns:
-        dict with keys: successful (int), failed (int), files (list[str]).
-    """
-    args = argparse.Namespace(
-        url=url,
-        limit=limit,
-        language=language,
-        summarize=generate_summary,
-        post_kits=generate_post_kits,
-    )
+    """Programmatic API mirror of command_playlist."""
+    args = argparse.Namespace(url=url, limit=limit, language=language)
 
     try:
         result = command_playlist(args)
         if isinstance(result, dict):
             return result
-        # command_playlist returned None — legacy fallback, neutral stats
         return {"successful": 0, "failed": 0, "files": []}
     except SystemExit as e:
         if e.code == 0:
-            # empty playlist or graceful exit — no work done
             return {"successful": 0, "failed": 0, "files": []}
         return {"successful": 0, "failed": 1, "files": []}
     except Exception as e:
