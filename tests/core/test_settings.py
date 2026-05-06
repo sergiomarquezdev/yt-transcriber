@@ -1,5 +1,7 @@
 """Focused tests for core.settings defaults."""
 
+from pathlib import Path
+
 from core.settings import AppSettings
 
 
@@ -17,3 +19,14 @@ class TestTranscriptSegmentSettings:
         assert app_settings.TRANSCRIPT_SEGMENTS_ENABLED is False
         assert app_settings.VISUAL_EVIDENCE_ENABLED is False
         assert app_settings.VISUAL_EVIDENCE_MIN_SEGMENT_SECONDS == 1.0
+
+
+def test_output_base_dir_default_is_output(monkeypatch):
+    """OUTPUT_BASE_DIR defaults to Path('output/') and replaces the legacy split dirs."""
+    monkeypatch.delenv("OUTPUT_BASE_DIR", raising=False)
+    import importlib
+    import sys
+
+    settings_module = sys.modules["core.settings"]
+    importlib.reload(settings_module)
+    assert settings_module.settings.OUTPUT_BASE_DIR == Path("output/")
