@@ -2,7 +2,6 @@
 
 import shutil
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -107,42 +106,6 @@ def sample_transcript_es():
     Nos ayuda a detectar errores temprano y asegura la calidad del codigo.
     Vamos a ver los conceptos basicos de pruebas unitarias.
     """
-
-
-@pytest.fixture
-def sample_video_summary():
-    """Create a sample VideoSummary for testing."""
-    from core.models import TimestampedSection, VideoSummary
-
-    return VideoSummary(
-        video_url="https://youtube.com/watch?v=test123",
-        video_title="Test Video Title",
-        video_id="test123",
-        executive_summary="This is a test executive summary.",
-        key_points=[
-            "First key point",
-            "Second key point",
-            "Third key point",
-        ],
-        timestamps=[
-            TimestampedSection(
-                timestamp="00:00",
-                description="Introduction",
-                importance=3,
-            ),
-            TimestampedSection(
-                timestamp="05:30",
-                description="Main content",
-                importance=5,
-            ),
-        ],
-        conclusion="This is the test conclusion.",
-        action_items=["Action 1", "Action 2"],
-        word_count=500,
-        estimated_duration_minutes=3.5,
-        language="en",
-        generated_at=datetime(2024, 1, 1, 12, 0, 0),
-    )
 
 
 # =============================================================================
